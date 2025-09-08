@@ -7,20 +7,26 @@ interface LoginFormData {
 }
 
 const Form: React.FC = () => {
-  const[form, setForm] = useState<LoginFormData>({ username: '', password: ''});
+  const[form, setForm] = useState<LoginFormData>({ username: '', password: '' });
+  const[result, setResult] = useState<string>('');
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
       const {name, value} = e.target;
       setForm( prev => ({ ...prev, [name]: value}));
   };
 
+  //Conexión login profesor eric ross
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    await fetch('/api/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(form)
-    });
+    try{
+      const url = `https://puclaro.ucn.cl/eross/avance/login.php?email=${encodeURIComponent(form.username)}&password=${encodeURIComponent(form.password)}`;
+      const response = await fetch(url,{method: 'GET'});
+      const data = await response.json();
+      setResult(JSON.stringify(data));
+    }catch(err){
+      console.error(err);
+      setResult('Error en la solicitud');
+    }
   };
   
 
@@ -42,6 +48,9 @@ const Form: React.FC = () => {
           </div>
           <button className="sign" type="submit">Sign in</button>
         </form>
+        <pre>
+          {result}
+        </pre>
         <div className="social-message">
           <div className="line" />
           <p className="message">Login with social accounts</p>
