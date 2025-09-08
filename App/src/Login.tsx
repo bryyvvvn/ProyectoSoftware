@@ -1,25 +1,68 @@
-import React from 'react';
+import React, {useState, ChangeEvent, FormEvent } from 'react';
 import styled from 'styled-components';
 
-const Form = () => {
+interface LoginFormData {
+  username: string;
+  password: string;
+}
+
+interface LoginProps{
+  onSucces: (data:any) => void;
+}
+
+
+
+const Form: React.FC<LoginProps> = ({onSucces}) => {
+  const[form, setForm] = useState<LoginFormData>({ username: '', password: '' });
+  const[result, setResult] = useState<string>('');
+
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+      const {name, value} = e.target;
+      setForm( prev => ({ ...prev, [name]: value}));
+  };
+
+  //Conexión login profesor eric ross
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    try{
+      const url = `https://puclaro.ucn.cl/eross/avance/login.php?email=${encodeURIComponent(form.username)}&password=${encodeURIComponent(form.password)}`;
+      const response = await fetch(url,{method: 'GET'});
+      const data = await response.json();
+      if(data && !data.error){
+        onSucces(data);
+      }else{
+        setResult(data.error || 'Credenciales inválidas');
+      }
+    }catch(err){
+      console.error(err);
+      setResult('Error en la solicitud');
+    }
+  };
+  
+
   return (
     <StyledWrapper>
       <div className="form-container">
         <p className="title">Login</p>
-        <form className="form">
+        <form className="form" onSubmit={handleSubmit}>
           <div className="input-group">
             <label htmlFor="username">Username</label>
-            <input type="text" name="username" id="username" placeholder />
+            <input type="text" name="username" id="username" placeholder="" value={form.username} onChange={handleChange} />
           </div>
           <div className="input-group">
             <label htmlFor="password">Password</label>
-            <input type="password" name="password" id="password" placeholder />
+            <input type="password" name="password" id="password" placeholder="" value={form.password} onChange={handleChange} />  
             <div className="forgot">
               <a rel="noopener noreferrer" href="#">Forgot Password ?</a>
             </div>
           </div>
-          <button className="sign">Sign in</button>
+          <button className="sign" type="submit">Sign in</button>
         </form>
+        {result && (
+          <pre>
+            {result}
+          </pre>
+        )}
         <div className="social-message">
           <div className="line" />
           <p className="message">Login with social accounts</p>
@@ -33,7 +76,7 @@ const Form = () => {
           </button>
           <button aria-label="Log in with Twitter" className="icon">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" className="w-5 h-5 fill-current">
-              <path d="M31.937 6.093c-1.177 0.516-2.437 0.871-3.765 1.032 1.355-0.813 2.391-2.099 2.885-3.631-1.271 0.74-2.677 1.276-4.172 1.579-1.192-1.276-2.896-2.079-4.787-2.079-3.625 0-6.563 2.937-6.563 6.557 0 0.521 0.063 1.021 0.172 1.495-5.453-0.255-10.287-2.875-13.52-6.833-0.568 0.964-0.891 2.084-0.891 3.303 0 2.281 1.161 4.281 2.916 5.457-1.073-0.031-2.083-0.328-2.968-0.817v0.079c0 3.181 2.26 5.833 5.26 6.437-0.547 0.145-1.131 0.229-1.724 0.229-0.421 0-0.823-0.041-1.224-0.115 0.844 2.604 3.26 4.5 6.14 4.557-2.239 1.755-5.077 2.801-8.135 2.801-0.521 0-1.041-0.025-1.563-0.088 2.917 1.86 6.36 2.948 10.079 2.948 12.067 0 18.661-9.995 18.661-18.651 0-0.276 0-0.557-0.021-0.839 1.287-0.917 2.401-2.079 3.281-3.396z" />
+              <path d="M31.937 6.093c-1.177 0.516-2.437 0.871-3.765 1.032 1.355-0.813 2.391-2.099 2.885-3.631-1.271 0.74-2.677 1.276-4.172 1.579-1.192-1.276-2.896-2.079-4.787-2.079-3.625 0-6.563 2.937-6.563 6.557 0 0.521 0.063 1.021 0.172 1.495-5.453-0.255-10.287-2.875-13.52-6.833-0.568 0.964-0.891 2.084-0.891 3.303 0 2.281 1.161 4.281 2.916 5.457-1.073-0.031-2.083-0.328-2.968-0.807v0.079c0 3.181 2.26 5.833 5.26 6.437-0.547 0.145-1.131 0.229-1.724 0.229-0.421 0-0.823-0.041-1.224-0.115 0.844 2.604 3.26 4.5 6.14 4.557-2.239 1.755-5.077 2.801-8.135 2.801-0.521 0-1.041-0.025-1.563-0.088 2.917 1.86 6.36 2.948 10.079 2.948 12.067 0 18.661-9.995 18.661-18.651 0-0.276 0-0.557-0.021-0.839 1.287-0.917 2.401-2.079 3.281-3.396z" />
             </svg>
           </button>
           <button aria-label="Log in with GitHub" className="icon">
@@ -43,20 +86,29 @@ const Form = () => {
           </button>
         </div>
         <p className="signup">Don't have an account?
-          <a rel="noopener noreferrer" href="#" className>Sign up</a>
+          <a rel="noopener noreferrer" href="#" className="">Sign up</a>
         </p>
       </div>
-    </StyledWrapper>
+    </StyledWrapper>  
   );
 }
 
 const StyledWrapper = styled.div`
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradiente(135deg, #667eea 0%, #764ba2 100%);
+  padding: 1rem;
+
   .form-container {
-    width: 320px;
+    width: 100%;
+    max-width: 320px;
     border-radius: 0.75rem;
     background-color: rgba(17, 24, 39, 1);
     padding: 2rem;
     color: rgba(243, 244, 246, 1);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
   }
 
   .title {
@@ -74,6 +126,7 @@ const StyledWrapper = styled.div`
     margin-top: 0.25rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
+    
   }
 
   .input-group label {
@@ -83,13 +136,14 @@ const StyledWrapper = styled.div`
   }
 
   .input-group input {
-    width: 100%;
+    width: 85%;
     border-radius: 0.375rem;
     border: 1px solid rgba(55, 65, 81, 1);
     outline: 0;
     background-color: rgba(17, 24, 39, 1);
     padding: 0.75rem 1rem;
     color: rgba(243, 244, 246, 1);
+    margin: 0 auto;
   }
 
   .input-group input:focus {
@@ -125,6 +179,7 @@ const StyledWrapper = styled.div`
     border: none;
     border-radius: 0.375rem;
     font-weight: 600;
+    cursor: pointer;
   }
 
   .social-message {
@@ -171,6 +226,7 @@ const StyledWrapper = styled.div`
     font-size: 0.75rem;
     line-height: 1rem;
     color: rgba(156, 163, 175, 1);
-  }`;
+  }
+`;
 
 export default Form;
