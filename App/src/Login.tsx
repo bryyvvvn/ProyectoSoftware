@@ -6,7 +6,13 @@ interface LoginFormData {
   password: string;
 }
 
-const Form: React.FC = () => {
+interface LoginProps{
+  onSucces: (data:any) => void;
+}
+
+
+
+const Form: React.FC<LoginProps> = ({onSucces}) => {
   const[form, setForm] = useState<LoginFormData>({ username: '', password: '' });
   const[result, setResult] = useState<string>('');
 
@@ -22,7 +28,11 @@ const Form: React.FC = () => {
       const url = `https://puclaro.ucn.cl/eross/avance/login.php?email=${encodeURIComponent(form.username)}&password=${encodeURIComponent(form.password)}`;
       const response = await fetch(url,{method: 'GET'});
       const data = await response.json();
-      setResult(JSON.stringify(data));
+      if(data && !data.error){
+        onSucces(data);
+      }else{
+        setResult(data.error || 'Credenciales inválidas');
+      }
     }catch(err){
       console.error(err);
       setResult('Error en la solicitud');
@@ -48,9 +58,11 @@ const Form: React.FC = () => {
           </div>
           <button className="sign" type="submit">Sign in</button>
         </form>
-        <pre>
-          {result}
-        </pre>
+        {result && (
+          <pre>
+            {result}
+          </pre>
+        )}
         <div className="social-message">
           <div className="line" />
           <p className="message">Login with social accounts</p>
@@ -82,12 +94,21 @@ const Form: React.FC = () => {
 }
 
 const StyledWrapper = styled.div`
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradiente(135deg, #667eea 0%, #764ba2 100%);
+  padding: 1rem;
+
   .form-container {
-    width: 320px;
+    width: 100%;
+    max-width: 320px;
     border-radius: 0.75rem;
     background-color: rgba(17, 24, 39, 1);
     padding: 2rem;
     color: rgba(243, 244, 246, 1);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
   }
 
   .title {
@@ -105,6 +126,7 @@ const StyledWrapper = styled.div`
     margin-top: 0.25rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
+    
   }
 
   .input-group label {
@@ -114,13 +136,14 @@ const StyledWrapper = styled.div`
   }
 
   .input-group input {
-    width: 100%;
+    width: 85%;
     border-radius: 0.375rem;
     border: 1px solid rgba(55, 65, 81, 1);
     outline: 0;
     background-color: rgba(17, 24, 39, 1);
     padding: 0.75rem 1rem;
     color: rgba(243, 244, 246, 1);
+    margin: 0 auto;
   }
 
   .input-group input:focus {
@@ -156,6 +179,7 @@ const StyledWrapper = styled.div`
     border: none;
     border-radius: 0.375rem;
     font-weight: 600;
+    cursor: pointer;
   }
 
   .social-message {
