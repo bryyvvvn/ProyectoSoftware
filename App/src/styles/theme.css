@@ -1,0 +1,28 @@
+/* src/styles/theme.css */
+:root{
+    /* fondo */
+    --bg: linear-gradient(to right, #85D8CE, #085078);
+    --panel: #FFFFFF;
+    --panel-2: #F9FAFB;
+    --border: #E5E7EB;
+    --text: #111827;
+    --muted: #6B7280;
+    /* Base */
+    /* Institucional */
+    --brand-900: #0B2C4A;     /* azul oscuro (sidebar/header) */
+    --brand-700: #0F3D5E;     /* azul medio */
+
+    /* Acentos */
+    --accent: #F97316;        /* naranja primario (CTA) */
+    --accent-hover: #EA580C;
+    --link: #2563EB;          /* azul para enlaces y focus */
+
+    /* Estados */
+    --success: #22C55E;
+    --danger: #DC2626;
+    --warn: #F59E0B;
+
+    /* Radii y sombras */
+    --radius: 12px;
+    --shadow: 0 8px 24px rgba(2,6,23,0.08);
+}
