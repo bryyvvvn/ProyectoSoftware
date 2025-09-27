@@ -22,4 +22,28 @@ app.post('/api/login', async (req: Request, res: Response) => {
   res.json({ token });
 });
 
+
+app.get('/api/mallas/:codigo/:catalogo', async (req: Request, res: Response) => {
+  const { codigo, catalogo } = req.params;
+
+  try {
+    const url = `https://losvilos.ucn.cl/hawaii/api/mallas?${codigo}-${catalogo}`;
+    const response = await fetch(url, {
+      headers: { 'X-HAWAII-AUTH': 'jf400fejof13f' }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Error al obtener malla' });
+    }
+
+    const data = await response.json();
+    console.log('Datos recibidos del API externo:', data);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error en el servidor proxy' });
+  }
+});
+
+
 app.listen(3000, () => console.log('Servidor escuchando en puerto 3000'));

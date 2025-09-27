@@ -26,8 +26,12 @@ export default function Form({ onSucces }: LoginProps) {
             const url = `https://puclaro.ucn.cl/eross/avance/login.php?email=${encodeURIComponent(
                 form.username
             )}&password=${encodeURIComponent(form.password)}`;
+
             const response = await fetch(url, { method: "GET" });
             const data = await response.json();
+            console.log(form.username);
+            console.log(form.password);
+            console.log("respueta del server: ", data);
             if (data && !data.error) {
                 onSucces(data);
             } else {
