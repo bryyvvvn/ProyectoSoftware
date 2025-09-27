@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import Form from './Login';
-import Dashboard from './Dashboard';
+import Malla from './Malla';
 
 const App: React.FC = () => {
     const[data, setData] = useState<any | null>(null);
@@ -9,7 +9,7 @@ const App: React.FC = () => {
         setData(apiData);
     };
 
-    return data ? <Dashboard data={data} /> : <Form onSucces={handleSucces}/>
+    return data ? <Malla data={data} /> : <Form onSucces={handleSucces}/>
 };
 
 export default App;

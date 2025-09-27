@@ -92,9 +92,7 @@
     "side-channel-weakmap": "^1.0.2",
     "statuses": "^2.0.2",
     "toidentifier": "^1.0.1",
-    "ts-node": "^10.9.2",
     "type-is": "^2.0.1",
-    "typescript": "^5.9.2",
     "undici-types": "^7.10.0",
     "unpipe": "^1.0.0",
     "v8-compile-cache-lib": "^3.0.1",
@@ -106,8 +104,10 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^24.3.1",
-    "tsx": "^4.20.5"
+    "@types/node": "^24.5.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   },
   "scripts": {
     "dev": "tsx watch server.ts",
