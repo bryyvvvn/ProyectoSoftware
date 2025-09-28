@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
-import Form from './Login';
-import Malla from './Malla';
+import Form from './pages/Login/Login';
+import Malla from './pages/AvanceCurricular/Malla';
 
 const App: React.FC = () => {
     const[data, setData] = useState<any | null>(null);
