@@ -45,5 +45,25 @@ app.get('/api/mallas/:codigo/:catalogo', async (req: Request, res: Response) => 
   }
 });
 
+//Llamado para la API del avance curricular
+app.get('/api/avance/:rut/:codcarrera', async (req: Request, res: Response) => {
+  const {rut,codcarrera} = req.params;
+
+  try{
+    const url = `https://puclaro.ucn.cl/eross/avance/avance.php?rut=${encodeURIComponent(rut)}&codcarrera=${encodeURIComponent(codcarrera)}`;
+    const response = await fetch(url);
+
+    if(!response.ok){
+      return res.status(response.status).json({error: 'Error al obtener avance académico'});
+    }
+
+    const data = await response.json();
+    res.json(data);
+
+  }catch(err){
+    console.error(err);
+    res.status(500).json({error: 'Error en el servidor proxy de arranque'});
+  }
+})
 
 app.listen(3000, () => console.log('Servidor escuchando en puerto 3000'));
