@@ -22,26 +22,28 @@ export default function Form({ onSucces }: LoginProps) {
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setResult("");
-        try {
-            const url = `https://puclaro.ucn.cl/eross/avance/login.php?email=${encodeURIComponent(
-                form.username
-            )}&password=${encodeURIComponent(form.password)}`;
 
-            const response = await fetch(url, { method: "GET" });
+        try {
+            const response = await fetch("http://localhost:3000/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(form),
+            });
+
             const data = await response.json();
-            console.log(form.username);
-            console.log(form.password);
-            console.log("respueta del server: ", data);
-            if (data && !data.error) {
-                onSucces(data);
+            console.log("Respuesta del servidor:", data);
+
+            if (response.ok) {
+            onSucces(data); // data incluye el token o info del usuario
             } else {
-                setResult(data.error || "Credenciales inválidas");
+            setResult(data.error || "Credenciales inválidas");
             }
         } catch (err) {
             console.error(err);
             setResult("Error en la solicitud");
         }
     };
+
 
     return (
         <div className="min-h-screen grid place-items-center px-4">

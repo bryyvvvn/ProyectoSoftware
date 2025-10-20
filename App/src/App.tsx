@@ -1,58 +1,80 @@
 import React, { useState } from "react";
-import Form from "./pages/Login/Login";
-import Malla from "./pages/AvanceCurricular/Malla";
-import { LegendEstados } from "./componentes/avance/LegendEstados";
-import { Sidebar } from "./componentes/layout/Sidebar";
-import { PageHeader } from "./componentes/layout/PageHeader";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
-type Vista = "avance" | "historial" | "proyecciones";
+// Páginas
+import Login from "./pages/Login/Login";
+import Malla from "./pages/AvanceCurricular/Malla";
+import Historial from "./pages/HistorialAcademico/Historial";
+import Proyecciones from "./pages/Proyecciones/Proyecciones";
+
+// Componentes de layout
+import { Sidebar } from "./componentes/layout/Sidebar";
+
+// Tipos
+interface Carrera {
+  codigo: string;
+  nombre: string;
+  catalogo: string;
+}
+
+interface UserData {
+  rut: string;
+  carreras: Carrera[];
+  email?: string;
+  usuario?: { email: string };
+  correo?: string;
+}
 
 const App: React.FC = () => {
-    const [data, setData] = useState<any | null>(null);
-    const handleSucces = (apiData: any) => setData(apiData);
+  const [userData, setUserData] = useState<UserData | null>(null);
 
-    const [vista, setVista] = useState<Vista>("avance");
-    const onLogout = () => window.location.reload();
+  const handleSucces = (apiData: any) => setUserData(apiData as UserData);
+  const onLogout = () => setUserData(null);
+    
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Si no hay sesión, mostrar login */}
+        {!userData && (
+          <Route path="/login" element={<Login onSucces={handleSucces} />} />
+        )}
 
-    if (!data) return <Form onSucces={handleSucces} />;
+        {/* Si intenta acceder a otra ruta sin login, redirigir al login */}
+        {!userData && <Route path="*" element={<Navigate to="/login" replace />} />}
 
-    return (
-        <div className="px-6 py-5 border-b border-white/10">
-            <div className="text-sm opacity-80">Estudiante</div>
-            <div className="text-base font-semibold leading-tight break-all">
-            <Sidebar active={vista} onChange={setVista} onLogout={onLogout} nombre={data?.usuario?.email || data?.email || data?.correo || data?.rut} /> </div>
-            <main className="ml-64 p-6">
-                {vista === "avance" && (
-                    <>
-                        <PageHeader title="AVANCE CURRICULAR" />
-                        <div className="mb-3">
-                            <LegendEstados />
-                        </div>
-                        <Malla data={data} only="grid" />
-                    </>
-                )}
-
-                {vista === "historial" && (
-                    <>
-                        <PageHeader title="HISTORIAL ACADÉMICO" />
-                        {/* SOLO historial */}
-                        <Malla data={data} only="historial" />
-                    </>
-                )}
-
-                {vista === "proyecciones" && (
-                    <>
-                        <PageHeader title="PROYECCIONES" />
-                        <div className="rounded-xl bg-white p-6 border text-slate-600">
-                            Próximamente…
-                        </div>
-                    </>
-                )}
-            </main>
-        </div>
-    );
-
+        {/* Si hay sesión, mostrar la aplicación */}
+        {userData && (
+          <Route
+            path="/*"
+            element={
+              <div className="flex min-h-screen bg-gray-900 font-sans text-white">
+                <Sidebar
+                  nombre={
+                    userData.usuario?.email ||
+                    userData.email ||
+                    userData.correo ||
+                    userData.rut ||
+                    "Estudiante"
+                  }
+                  onLogout={onLogout}
+                />
+                <main className="flex-1 ml-64 p-8 bg-gray-300 text-gray-800">
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/malla" replace />} />
+                    <Route path="/malla" element={<Malla data={userData} />} />
+                    <Route path="/historial" element={<Historial data={userData} />} />
+                    <Route path="/proyecciones" element={<Proyecciones data={userData} />} />
+                    {/*es una ruta default, por si ponen rutas que no existan*/}
+                    <Route path="*" element={<Navigate to="/malla" replace />} />
+                  </Routes>
+                </main>
+              </div>
+            }
+          />
+        )}
+      </Routes>
+    </BrowserRouter>
+  );
 };
 
 export default App;
-

@@ -1,7 +1,10 @@
 {
   "dependencies": {
+    "install": "^0.13.0",
+    "npm": "^11.6.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.4",
     "styled-components": "^6.1.19"
   },
   "devDependencies": {
