@@ -1,42 +1,50 @@
 import React, { useState, ChangeEvent, FormEvent } from "react";
-import "../../styles/login.css";
 
+// Interfaz para definir la estructura de los datos del formulario
 interface LoginFormData {
     username: string;
     password: string;
 }
 
+// Interfaz para definir las props del componente
 interface LoginProps {
     onSucces: (data: any) => void;
 }
 
 export default function Form({ onSucces }: LoginProps) {
+    // Estado para almacenar los datos del formulario (usuario y contraseña)
     const [form, setForm] = useState<LoginFormData>({ username: "", password: "" });
+    // Estado para almacenar el mensaje de resultado (éxito o error)
     const [result, setResult] = useState<string>("");
 
+    // Manejador para actualizar el estado del formulario cuando el usuario escribe
     const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setForm((prev) => ({ ...prev, [name]: value }));
     };
 
+    // Manejador para enviar el formulario
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        setResult("");
+        setResult(""); // Limpiar el resultado anterior
 
         try {
+            // Petición POST al endpoint de login
             const response = await fetch("http://localhost:3000/api/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(form),
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(form),
             });
 
             const data = await response.json();
             console.log("Respuesta del servidor:", data);
 
             if (response.ok) {
-            onSucces(data); // data incluye el token o info del usuario
+                // Si la respuesta es exitosa, llama a la función onSucces
+                onSucces(data); // data incluye el token o info del usuario
             } else {
-            setResult(data.error || "Credenciales inválidas");
+                // Si hay un error, muestra el mensaje de error
+                setResult(data.error || "Credenciales inválidas");
             }
         } catch (err) {
             console.error(err);
@@ -44,74 +52,69 @@ export default function Form({ onSucces }: LoginProps) {
         }
     };
 
-
     return (
-        <div className="min-h-screen grid place-items-center px-4">
-            <div className="container">
-                <h1 className="heading">¡Bienvenido!</h1>
+        // Contenedor principal que centra el formulario en la pantalla
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 dark">
+            <div className="w-full max-w-md bg-gray-800 rounded-lg shadow-md p-6">
+                <h2 className="text-2xl font-bold text-gray-200 mb-4">Iniciar Sesión</h2>
 
-                <form className="form" onSubmit={handleSubmit}>
+                <form className="flex flex-col" onSubmit={handleSubmit}>
+                    {/* Campo de entrada para el email/usuario */}
                     <input
-                        className="input"
-                        type="text"
+                        placeholder="Correo electrónico"
+                        className="bg-gray-700 text-gray-200 border-0 rounded-md p-2 mb-4 focus:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition ease-in-out duration-150"
+                        type="email"
                         name="username"
-                        placeholder="usuario@ucn.cl"
                         value={form.username}
                         onChange={handleChange}
+                        required
                     />
 
+                    {/* Campo de entrada para la contraseña */}
                     <input
-                        className="input"
+                        placeholder="Contraseña"
+                        className="bg-gray-700 text-gray-200 border-0 rounded-md p-2 mb-4 focus:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition ease-in-out duration-150"
                         type="password"
                         name="password"
-                        placeholder="Contraseña"
                         value={form.password}
                         onChange={handleChange}
+                        required
                     />
 
-                    <span className="forgot-password">
-            <a href="#">¿Olvidaste tu contraseña?</a>
-          </span>
+                    <div className="flex items-center justify-between flex-wrap">
+                        {/* Checkbox "Remember me" (sin funcionalidad por ahora) */}
+                        <label className="text-sm text-gray-200 cursor-pointer" htmlFor="remember-me">
+                            <input className="mr-2" id="remember-me" type="checkbox" />
+                            Recuérdame
+                        </label>
 
-                    <button className="login-button" type="submit">
-                        Iniciar sesión
+                        {/* Enlace para recuperar contraseña */}
+                        <a className="text-sm text-blue-500 hover:underline mb-0.5" href="#">¿Olvidaste tu contraseña?</a>
+                    </div>
+
+                    {/* Botón para enviar el formulario */}
+                    <button
+                        className="bg-gradient-to-r from-indigo-500 to-blue-500 text-white font-bold py-2 px-4 rounded-md mt-4 hover:bg-indigo-600 hover:to-blue-600 transition ease-in-out duration-150"
+                        type="submit"
+                    >
+                        Iniciar Sesión
                     </button>
+
+                    {/* Muestra el mensaje de error si existe */}
+                    {result && (
+                        <p className="text-red-400 text-center mt-4 text-sm">
+                            {result}
+                        </p>
+                    )}
                 </form>
 
-                {result && (
-                    <div
-                        style={{
-                            background: "var(--panel-2)",
-                            border: "1px solid var(--border)",
-                            borderRadius: 12,
-                            padding: "10px 12px",
-                            fontSize: 13,
-                            marginTop: 8,
-                        }}
-                    >
-                        {result}
-                    </div>
-                )}
-
-                <div className="social-account-container">
-                    <span className="title">o bien ingresa con</span>
-                    <div className="social-accounts">
-                        <button className="social-button" type="button" aria-label="Google">
-                            <svg className="svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="18" height="18">
-                                <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.6 32.4 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.2 6 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/>
-                                <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.3 16 18.8 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.2 6 29.4 4 24 4 16.3 4 9.6 8.4 6.3 14.7z"/>
-                                <path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.2C29.2 35.2 26.8 36 24 36c-5.3 0-9.7-3.6-11.3-8.5l-6.5 5C9.6 39.6 16.3 44 24 44z"/>
-                                <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-1.1 3.2-4.5 5.5-8.3 5.5-5.3 0-9.7-3.6-11.3-8.5l-6.5 5C9.6 39.6 16.3 44 24 44c11.1 0 20-8.9 20-20 0-1.3-.1-2.7-.4-3.5z"/>
-                            </svg>
-                        </button>
-                        {/* Agrega otros si quieres: GitHub/Twitter */}
-                    </div>
-                </div>
-
-                <span className="agreement">
-          ¿No tienes cuenta? <a href="#">Regístrate</a>
-        </span>
+                {/* Enlace para registrarse */}
+                <p className="text-gray-200 mt-4 text-center text-sm">
+                    ¿No tienes una cuenta? <a className="text-sm text-blue-500 hover:underline" href="#">Regístrate</a>
+                </p>
             </div>
         </div>
     );
 }
+
+
