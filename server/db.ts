@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { Estudiante } from "./entidades/Estudiante";
 import { Proyeccion } from "./entidades/Proyeccion";
 import { Asignatura } from "./entidades/Asignatura";
+import { ProyeccionAsignatura } from "./entidades/Proyeccion_Asignatura"; 
 
 dotenv.config();
 
@@ -13,5 +14,5 @@ export const AppDataSource = new DataSource({
   synchronize: true,
   logging: ["error"],
   ssl: process.env.DATABASE_URL?.includes("neon.tech") ? { rejectUnauthorized: false } : false,
-  entities: [Estudiante, Proyeccion, Asignatura],
+  entities: [Estudiante, Proyeccion, Asignatura, ProyeccionAsignatura],
 });

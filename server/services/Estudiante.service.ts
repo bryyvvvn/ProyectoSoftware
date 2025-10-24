@@ -5,11 +5,14 @@ const estudianteRepo = AppDataSource.getRepository(Estudiante);
 
 export const EstudianteService = {
   async getAll() {
-    return await estudianteRepo.find();
+    return await estudianteRepo.find({ relations: ["proyecciones"] });
   },
 
-  async getById(id: number) {
-    return await estudianteRepo.findOne({ where: { id } });
+  async getById(rut: string) {
+    return await estudianteRepo.findOne({
+      where: { rut },
+      relations: ["proyecciones"],
+    });
   },
 
   async create(data: Partial<Estudiante>) {
@@ -17,12 +20,12 @@ export const EstudianteService = {
     return await estudianteRepo.save(estudiante);
   },
 
-  async update(id: number, data: Partial<Estudiante>) {
-    await estudianteRepo.update(id, data);
-    return this.getById(id);
+  async update(rut: string, data: Partial<Estudiante>) {
+    await estudianteRepo.update(rut, data);
+    return this.getById(rut);
   },
 
-  async remove(id: number) {
-    return await estudianteRepo.delete(id);
+  async remove(rut: string) {
+    return await estudianteRepo.delete(rut);
   },
 };

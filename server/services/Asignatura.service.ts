@@ -8,8 +8,8 @@ export const AsignaturaService = {
     return await asignaturaRepo.find();
   },
 
-  async getById(id: number) {
-    return await asignaturaRepo.findOne({ where: { id } });
+  async getById(codigo: string) {
+    return await asignaturaRepo.findOne({ where: { codigo } });
   },
 
   async create(data: Partial<Asignatura>) {
@@ -17,12 +17,12 @@ export const AsignaturaService = {
     return await asignaturaRepo.save(asignatura);
   },
 
-  async update(id: number, data: Partial<Asignatura>) {
-    await asignaturaRepo.update(id, data);
-    return this.getById(id);
+  async update(codigo: string, data: Partial<Asignatura>) {
+    await asignaturaRepo.update(codigo, data);
+    return this.getById(codigo);
   },
 
-  async remove(id: number) {
-    return await asignaturaRepo.delete(id);
+  async remove(codigo: string) {
+    return await asignaturaRepo.delete(codigo);
   },
 };

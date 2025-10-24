@@ -1,8 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn } from "typeorm";
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  OneToMany,
+  CreateDateColumn,
+  JoinColumn,
+  Column,
+} from "typeorm";
 import { Estudiante } from "./Estudiante";
-import { Asignatura } from "./Asignatura";
+import { ProyeccionAsignatura } from "./Proyeccion_Asignatura";
 
-@Entity()
+@Entity({ name: "proyeccion" })
 export class Proyeccion {
   @PrimaryGeneratedColumn()
   id!: number;
@@ -11,7 +19,13 @@ export class Proyeccion {
   @JoinColumn({ name: "estudiante_rut" })
   estudiante!: Estudiante;
 
-  @ManyToOne(() => Asignatura)
-  @JoinColumn({ name: "asignatura_codigo" })
-  asignatura!: Asignatura;
+  @CreateDateColumn({ name: "fecha_creacion" })
+  fechaCreacion!: Date;
+
+  @OneToMany(
+    () => ProyeccionAsignatura,
+    (proyAsig) => proyAsig.proyeccion,
+    { cascade: true }
+  )
+  asignaturas!: ProyeccionAsignatura[];
 }

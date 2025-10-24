@@ -5,11 +5,14 @@ const proyeccionRepo = AppDataSource.getRepository(Proyeccion);
 
 export const ProyeccionService = {
   async getAll() {
-    return await proyeccionRepo.find({ relations: ["asignaturas"] });
+    return await proyeccionRepo.find({ relations: ["estudiante", "asignaturas", "asignaturas.asignatura"] });
   },
 
   async getById(id: number) {
-    return await proyeccionRepo.findOne({ where: { id }, relations: ["asignaturas"] });
+    return await proyeccionRepo.findOne({
+      where: { id },
+      relations: ["estudiante", "asignaturas", "asignaturas.asignatura"],
+    });
   },
 
   async create(data: Partial<Proyeccion>) {

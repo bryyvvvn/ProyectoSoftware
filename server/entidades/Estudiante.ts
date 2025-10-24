@@ -1,17 +1,17 @@
 import { Entity, PrimaryColumn, Column, OneToMany } from "typeorm";
 import { Proyeccion } from "./Proyeccion";
 
-@Entity()
+@Entity({ name: "estudiante" })
 export class Estudiante {
-  @PrimaryColumn("text")
+  @PrimaryColumn("varchar")
   rut!: string; // RUT como PK
 
-  @Column("text")
+  @Column("varchar")
+  email!: string;
+
+  @Column("varchar")
   nombre!: string;
 
-  @Column("text")
-  correo!: string;
-
   @OneToMany(() => Proyeccion, (proyeccion) => proyeccion.estudiante)
-  proyecciones!: Proyeccion[]; // NO inicializar con = []
+  proyecciones!: Proyeccion[];
 }
