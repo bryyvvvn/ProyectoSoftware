@@ -1,29 +1,1309 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
-
-interface Carrera { codigo: string; nombre: string; catalogo: string; }
-interface UserData { 
-    rut: string; 
-    carreras: Carrera[]; 
-    // ... otros campos
+interface Carrera {
+  codigo: string;
+  nombre: string;
+  catalogo: string;
 }
 
-// 1. Interfaz de Props Corregida: Ahora espera 'data'
-interface ProyeccionesProps {
-    data: UserData; 
+interface UserData {
+  rut: string;
+  carreras: Carrera[];
 }
 
-// 2. Desestructuración de Props Corregida
-const ProyeccionesPage: React.FC<ProyeccionesProps> = ({ data }) => { // 👈 CORRECCIÓN 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3000";
 
-    return (
-        <>
-            {/* ... */}
-            <div className="rounded-xl bg-gray-100 p-6 border text-slate-600 shadow-md">
-                Próximamente... Proyección para el estudiante: {data.rut}
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
+
+type EstadoAsignatura = "cursado" | "reprobado" | "proyectado";
+
+interface AsignacionInfo {
+  semestre: number | null;
+  estado: EstadoAsignatura;
+}
+
+interface HistorialRegistro {
+  course: string;
+  status: string;
+  period?: string;
+}
+
+interface HistorialInfo {
+  estado: EstadoAsignatura;
+  etiqueta: string;
+  periodo: string | null;
+}
+
+interface AsignaturaMalla {
+  codigo: string;
+  nombre: string;
+  creditos: number;
+  nivel: number;
+  prereq: string[];
+  elegible: boolean;
+  motivos: string[];
+  asignado: AsignacionInfo | null;
+  historialEstado?: EstadoAsignatura | null;
+  historialEtiqueta?: string | null;
+  historialPeriodo?: string | null;
+}
+
+interface MallaResponse {
+  proyeccionSeleccionada: {
+    id: number;
+    nombreVersion: string;
+    isIdeal: boolean;
+  } | null;
+  asignaturas: AsignaturaMalla[];
+}
+
+interface CursoMallaBase {
+  codigo: string;
+  asignatura: string;
+  creditos: number;
+  nivel: number;
+}
+
+interface ProyeccionResumen {
+  id: number;
+  nombreVersion: string;
+  isIdeal: boolean;
+  fechaCreacion: string;
+  totalCreditos: number;
+  cantidadSemestres: number;
+  creditosPorSemestre: Record<string, number>;
+}
+
+interface ProyeccionesResponse {
+  proyecciones: ProyeccionResumen[];
+}
+
+interface ComparacionAsignaturaCambio {
+  codigo: string;
+  semestres: Record<string, number | null>;
+}
+
+interface ComparacionResponse {
+  versiones: Array<{
+    id: number;
+    nombreVersion: string;
+    isIdeal: boolean;
+    totalCreditos: number;
+    cantidadSemestres: number;
+  }>;
+  comparacion: {
+    baseId: number;
+    comparadaId: number;
+    adelantadas: ComparacionAsignaturaCambio[];
+    atrasadas: ComparacionAsignaturaCambio[];
+    soloBase: string[];
+    soloComparada: string[];
+  } | null;
+}
+
+type AlertKind = "success" | "error" | "info";
+
+interface AlertState {
+  id: number;
+  type: AlertKind;
+  text: string;
+}
+
+const estadoLabels: Record<EstadoAsignatura, string> = {
+  cursado: "Aprobado",
+  reprobado: "Reprobado",
+  proyectado: "Proyectado",
+};
+
+const estadoColorStyles: Record<EstadoAsignatura, string> = {
+  cursado: "border-emerald-500 bg-emerald-100 text-emerald-900",
+  reprobado: "border-red-500 bg-red-100 text-red-900",
+  proyectado: "border-blue-500 bg-blue-100 text-blue-900",
+};
+
+const interpretHistorialStatus = (
+  status: string | null | undefined
+): { estado: EstadoAsignatura; etiqueta: string } | null => {
+  if (!status) return null;
+  const normalized = status.trim().toUpperCase();
+  if (!normalized) return null;
+
+  if (["APROBADO", "APROBADA", "CONVALIDADO", "CONVALIDADA", "RECONOCIDO"].includes(normalized)) {
+    return { estado: "cursado", etiqueta: "Aprobado" };
+  }
+
+  if (["REPROBADO", "REPROBADA"].includes(normalized)) {
+    return { estado: "reprobado", etiqueta: "Reprobado" };
+  }
+
+  if (["INSCRITO", "CURSANDO", "EN CURSO"].includes(normalized)) {
+    return { estado: "proyectado", etiqueta: "Inscrito" };
+  }
+
+  return null;
+};
+
+const fetchJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    ...init,
+  });
+
+  const text = await response.text();
+  const data = text ? (JSON.parse(text) as unknown) : undefined;
+
+  if (!response.ok) {
+    const message = (data as { error?: string } | undefined)?.error ?? "Error en la petición";
+    throw new Error(message);
+  }
+
+  return data as T;
+};
+
+const formatCredits = (creditos: number) => `${creditos} créditos`;
+
+const CourseCard: React.FC<{
+  course: AsignaturaMalla;
+  draggable?: boolean;
+  onDragStart?: (codigo: string) => void;
+  onDragEnd?: () => void;
+  onChangeEstado?: (estado: EstadoAsignatura) => void;
+}> = ({ course, draggable = true, onDragStart, onDragEnd, onChangeEstado }) => {
+  const estadoActual = course.asignado?.estado ?? "proyectado";
+  const historialEstado = course.historialEstado ?? null;
+  const historialEtiqueta = course.historialEtiqueta ?? null;
+  const historialPeriodo = course.historialPeriodo ?? null;
+  const blocked = !course.elegible && !course.asignado && !historialEstado;
+  const isAssigned = Boolean(course.asignado);
+  const baseStyles = blocked
+    ? "border-gray-400 bg-gray-200 text-gray-600"
+    : isAssigned
+    ? estadoColorStyles[estadoActual]
+    : historialEstado
+    ? estadoColorStyles[historialEstado]
+    : "border-slate-300 bg-white text-slate-900";
+
+  return (
+    <div
+      draggable={draggable && (!blocked || isAssigned)}
+      onDragStart={(event) => {
+        if (!draggable) return;
+        event.dataTransfer.setData("text/plain", course.codigo);
+        event.dataTransfer.effectAllowed = "move";
+        onDragStart?.(course.codigo);
+      }}
+      onDragEnd={onDragEnd}
+      className={classNames(
+        "rounded-lg border shadow-sm transition-shadow",
+        "p-3 space-y-2",
+        baseStyles,
+        draggable && (!blocked || isAssigned) ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed opacity-60"
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-sm tracking-tight">{course.codigo}</p>
+          <p className="text-sm font-medium leading-tight">{course.nombre}</p>
+        </div>
+        <span className="text-xs font-semibold uppercase tracking-wide">{formatCredits(course.creditos)}</span>
+      </div>
+      <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-slate-700">Nivel {course.nivel}</span>
+        {course.prereq.length > 0 && (
+          <span className="rounded-full bg-indigo-200 px-2 py-0.5 text-indigo-800">Requiere: {course.prereq.join(", ")}</span>
+        )}
+        {!course.elegible && !course.asignado && (
+          <span className="rounded-full bg-gray-300 px-2 py-0.5 text-gray-700">Bloqueado</span>
+        )}
+      </div>
+      {(historialEtiqueta || historialPeriodo) && (
+        <p className="text-xs font-medium text-current">
+          Último registro: {historialEtiqueta ?? "—"}
+          {historialPeriodo ? ` · ${historialPeriodo}` : ""}
+        </p>
+      )}
+      {course.asignado && (
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="font-medium">Semestre {course.asignado.semestre ?? "-"}</span>
+          <select
+            value={estadoActual}
+            onChange={(event) => onChangeEstado?.(event.target.value as EstadoAsignatura)}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm"
+          >
+            {Object.entries(estadoLabels).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {course.motivos.length > 0 && (
+        <ul className="space-y-1 text-xs text-red-700">
+          {course.motivos.map((motivo) => (
+            <li key={motivo}>⚠️ {motivo}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+const SemesterColumn: React.FC<{
+  semester: number;
+  courses: AsignaturaMalla[];
+  totalCredits: number;
+  isActiveDrop: boolean;
+  onDropCourse: (codigo: string, semestre: number) => void;
+  onDragOver: () => void;
+  onDragLeave: () => void;
+  onDragStart: (codigo: string) => void;
+  onDragEnd: () => void;
+  onChangeEstado: (codigo: string, estado: EstadoAsignatura) => void;
+}> = ({
+  semester,
+  courses,
+  totalCredits,
+  isActiveDrop,
+  onDropCourse,
+  onDragOver,
+  onDragLeave,
+  onDragStart,
+  onDragEnd,
+  onChangeEstado,
+}) => (
+  <div
+    className={classNames(
+      "flex h-full flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition",
+      isActiveDrop ? "border-blue-500 bg-blue-50" : ""
+    )}
+    onDragOver={(event) => {
+      event.preventDefault();
+      onDragOver();
+    }}
+    onDragLeave={onDragLeave}
+    onDrop={(event) => {
+      event.preventDefault();
+      const codigo = event.dataTransfer.getData("text/plain");
+      if (codigo) onDropCourse(codigo, semester);
+      onDragLeave();
+    }}
+  >
+    <header className="flex items-center justify-between">
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Semestre {semester}</h3>
+      <span className={classNames("text-xs font-semibold", totalCredits > 32 ? "text-red-600" : "text-slate-500")}> 
+        {totalCredits} / 32 créditos
+      </span>
+    </header>
+    <div className="flex flex-1 flex-col gap-3">
+      {courses.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center text-xs text-slate-400">
+          Arrastra ramos aquí
+        </p>
+      ) : (
+        [...courses]
+          .sort((a, b) => a.codigo.localeCompare(b.codigo))
+          .map((course) => (
+            <CourseCard
+              key={course.codigo}
+              course={course}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onChangeEstado={(estado) => onChangeEstado(course.codigo, estado)}
+            />
+          ))
+      )}
+    </div>
+  </div>
+);
+
+const CoursesPool: React.FC<{
+  groupedCourses: Record<number, AsignaturaMalla[]>;
+  activeLevel?: number | null;
+  onDragStart: (codigo: string) => void;
+  onDragEnd: () => void;
+}> = ({ groupedCourses, activeLevel, onDragStart, onDragEnd }) => (
+  <div className="space-y-4">
+    <div className="flex items-center justify-between">
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Banco de cursos</h3>
+      {typeof activeLevel === "number" && (
+        <span className="text-xs font-semibold text-blue-600">Nivel {activeLevel}</span>
+      )}
+    </div>
+    <div className="grid gap-3 rounded-xl border border-slate-200 bg-white/80 p-4 shadow-sm">
+      {Object.keys(groupedCourses).length === 0 && (
+        <p className="text-center text-xs text-slate-400">Todos los cursos están planificados 🎉</p>
+      )}
+      {Object.entries(groupedCourses)
+        .sort(([nivelA], [nivelB]) => Number(nivelA) - Number(nivelB))
+        .map(([nivel, cursos]) => (
+          <div key={nivel} className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase text-slate-500">Nivel {nivel}</span>
+              <span className="text-xs text-slate-400">{cursos.length} ramos</span>
             </div>
-        </>
-    );
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[...cursos]
+                .sort((a, b) => a.codigo.localeCompare(b.codigo))
+                .map((curso) => (
+                  <CourseCard
+                    key={curso.codigo}
+                    course={curso}
+                    onDragStart={onDragStart}
+                    onDragEnd={onDragEnd}
+                  />
+                ))}
+            </div>
+          </div>
+        ))}
+    </div>
+  </div>
+);
+
+const RemovalDropZone: React.FC<{
+  active: boolean;
+  onDrop: (codigo: string) => void;
+  onHoverChange: (value: boolean) => void;
+}> = ({ active, onDrop, onHoverChange }) => (
+  <div
+    className={classNames(
+      "flex items-center justify-center rounded-xl border-2 border-dashed p-4 text-sm font-semibold transition",
+      active ? "border-red-500 bg-red-100 text-red-700" : "border-slate-300 bg-slate-100 text-slate-500"
+    )}
+    onDragOver={(event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      onHoverChange(true);
+    }}
+    onDragEnter={(event) => {
+      event.preventDefault();
+      onHoverChange(true);
+    }}
+    onDrop={(event) => {
+      event.preventDefault();
+      const codigo = event.dataTransfer.getData("text/plain");
+      if (codigo) onDrop(codigo);
+      onHoverChange(false);
+    }}
+    onDragLeave={() => onHoverChange(false)}
+  >
+    Soltar aquí para eliminar del semestre
+  </div>
+);
+
+const ComparisonPanel: React.FC<{
+  visible: boolean;
+  loading: boolean;
+  selectedIds: number[];
+  data: ComparacionResponse | null;
+  onClose: () => void;
+}> = ({ visible, loading, selectedIds, data, onClose }) => {
+  if (!visible) return null;
+
+  const comparar = data?.comparacion ?? null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20 px-4 pb-10 pt-20 sm:items-center">
+      <div className="max-h-full w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Comparador de versiones</h2>
+            <p className="text-sm text-slate-500">
+              Comparando versiones {selectedIds.map((id) => `#${id}`).join(" y ")}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full border border-slate-300 px-4 py-1 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+          >
+            Cerrar
+          </button>
+        </header>
+        <div className="max-h-[70vh] overflow-y-auto px-6 py-6">
+          {loading && <p className="text-sm text-slate-500">Cargando comparación...</p>}
+          {!loading && data && (
+            <div className="space-y-6">
+              <section className="grid gap-4 md:grid-cols-3">
+                {data.versiones.map((version) => (
+                  <div key={version.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <h3 className="text-sm font-semibold text-slate-600">{version.nombreVersion}</h3>
+                    <p className="text-xs text-slate-500">ID: {version.id}</p>
+                    <dl className="mt-3 space-y-2 text-sm text-slate-600">
+                      <div className="flex items-center justify-between">
+                        <dt className="font-medium">Créditos totales</dt>
+                        <dd>{version.totalCreditos}</dd>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <dt className="font-medium">Semestres</dt>
+                        <dd>{version.cantidadSemestres}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ))}
+              </section>
+
+              {comparar && (
+                <section className="space-y-4">
+                  <h3 className="text-sm font-semibold text-slate-600">Diferencias detectadas</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <h4 className="text-sm font-semibold text-emerald-700">Asignaturas adelantadas</h4>
+                      <ul className="mt-2 space-y-2 text-sm text-emerald-700">
+                        {comparar.adelantadas.length === 0 && <li>No hay asignaturas adelantadas.</li>}
+                        {comparar.adelantadas.map((item) => (
+                          <li key={item.codigo}>
+                            {item.codigo}: semestre {item.semestres[String(comparar.comparadaId)]} en comparación vs {item.semestres[String(comparar.baseId)]} en base
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                      <h4 className="text-sm font-semibold text-amber-700">Asignaturas atrasadas</h4>
+                      <ul className="mt-2 space-y-2 text-sm text-amber-700">
+                        {comparar.atrasadas.length === 0 && <li>No hay asignaturas atrasadas.</li>}
+                        {comparar.atrasadas.map((item) => (
+                          <li key={item.codigo}>
+                            {item.codigo}: semestre {item.semestres[String(comparar.comparadaId)]} en comparación vs {item.semestres[String(comparar.baseId)]} en base
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <h4 className="text-sm font-semibold text-slate-700">Solo en versión base</h4>
+                      <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                        {comparar.soloBase.length === 0 && <li>No hay diferencias.</li>}
+                        {comparar.soloBase.map((codigo) => (
+                          <li key={codigo}>{codigo}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <h4 className="text-sm font-semibold text-slate-700">Solo en versión comparada</h4>
+                      <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                        {comparar.soloComparada.length === 0 && <li>No hay diferencias.</li>}
+                        {comparar.soloComparada.map((codigo) => (
+                          <li key={codigo}>{codigo}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
+  const [loadingMalla, setLoadingMalla] = useState(false);
+  const [loadingProyecciones, setLoadingProyecciones] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [alerts, setAlerts] = useState<AlertState[]>([]);
+  const [courses, setCourses] = useState<AsignaturaMalla[]>([]);
+  const [selectedProjection, setSelectedProjection] = useState<MallaResponse["proyeccionSeleccionada"]>(null);
+  const [projections, setProjections] = useState<ProyeccionResumen[]>([]);
+  const [draggingCourse, setDraggingCourse] = useState<string | null>(null);
+  const [activeSemesterDrop, setActiveSemesterDrop] = useState<number | null>(null);
+  const [removalActive, setRemovalActive] = useState(false);
+  const [compareSelection, setCompareSelection] = useState<number[]>([]);
+  const [compareVisible, setCompareVisible] = useState(false);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareData, setCompareData] = useState<ComparacionResponse | null>(null);
+
+  const showAlert = useCallback((type: AlertKind, text: string) => {
+    setAlerts((prev) => [...prev, { id: Date.now(), type, text }]);
+  }, []);
+
+  useEffect(() => {
+    if (!alerts.length) return;
+    const timer = setTimeout(() => {
+      setAlerts((prev) => prev.slice(1));
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [alerts]);
+
+  const fetchProjections = useCallback(async () => {
+    setLoadingProyecciones(true);
+    try {
+      const response = await fetchJson<ProyeccionesResponse>(`/proyecciones/${encodeURIComponent(data.rut)}`);
+      setProjections(response.proyecciones);
+      const availableIds = response.proyecciones.map((p) => p.id);
+      if (selectedProjection && !availableIds.includes(selectedProjection.id)) {
+        const siguiente = response.proyecciones[0] ?? null;
+        setSelectedProjection(
+          siguiente ? { id: siguiente.id, nombreVersion: siguiente.nombreVersion, isIdeal: siguiente.isIdeal } : null
+        );
+      } else if (response.proyecciones.length && !selectedProjection) {
+        const primera = response.proyecciones.find((p) => p.isIdeal) ?? response.proyecciones[0];
+        setSelectedProjection({ id: primera.id, nombreVersion: primera.nombreVersion, isIdeal: primera.isIdeal });
+      }
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setLoadingProyecciones(false);
+    }
+  }, [data.rut, selectedProjection, showAlert]);
+
+  const fetchMalla = useCallback(
+    async (projectionId?: number | null) => {
+      const carrera = data.carreras?.[0];
+      if (!data.rut || !carrera) return;
+      setLoadingMalla(true);
+
+      try {
+        const baseResponse = await fetch(
+          `/api/malla/${encodeURIComponent(carrera.codigo)}/${encodeURIComponent(carrera.catalogo)}`
+        );
+
+        if (!baseResponse.ok) {
+          throw new Error("No fue posible obtener la malla base del plan de estudios");
+        }
+
+        const baseCourses = (await baseResponse.json()) as CursoMallaBase[];
+        const baseMap = new Map(baseCourses.map((course) => [course.codigo, course] as const));
+
+        let historialRecords: HistorialRegistro[] = [];
+        try {
+          const registros = await fetchJson<HistorialRegistro[]>(
+            `/api/historial/${encodeURIComponent(data.rut)}/${encodeURIComponent(carrera.codigo)}`
+          );
+          if (Array.isArray(registros)) {
+            historialRecords = registros;
+          } else {
+            showAlert("info", "La respuesta del historial académico no es válida. Se omitirán estados previos.");
+          }
+        } catch (error) {
+          console.error("No se pudo obtener el historial académico:", error);
+          showAlert(
+            "info",
+            (error as Error).message ||
+              "No se pudo obtener el historial académico. La malla se mostrará sin estados previos."
+          );
+        }
+
+        const historialMap = new Map<string, HistorialInfo>();
+        historialRecords
+          .filter((record) => record && typeof record.course === "string")
+          .sort((a, b) => (a.period ?? "").localeCompare(b.period ?? ""))
+          .forEach((record) => {
+            const interpreted = interpretHistorialStatus(record.status);
+            const key = record.course?.trim().toUpperCase();
+            if (!interpreted || !key) return;
+            historialMap.set(key, {
+              estado: interpreted.estado,
+              etiqueta: interpreted.etiqueta,
+              periodo: record.period ?? null,
+            });
+          });
+
+        let projectionResponse: MallaResponse | null = null;
+        try {
+          const url = projectionId
+            ? `/malla/${encodeURIComponent(data.rut)}?proyeccionId=${projectionId}`
+            : `/malla/${encodeURIComponent(data.rut)}`;
+          projectionResponse = await fetchJson<MallaResponse>(url);
+          setSelectedProjection(projectionResponse.proyeccionSeleccionada);
+        } catch (error) {
+          console.error(error);
+          showAlert("error", (error as Error).message);
+        }
+
+        const projectionMap = new Map<string, AsignaturaMalla>();
+        projectionResponse?.asignaturas.forEach((course) => {
+          projectionMap.set(course.codigo, {
+            ...course,
+            prereq: Array.isArray(course.prereq) ? course.prereq : [],
+            motivos: Array.isArray(course.motivos) ? course.motivos : course.motivos ? [course.motivos] : [],
+            historialEstado: course.historialEstado ?? null,
+            historialEtiqueta: course.historialEtiqueta ?? null,
+            historialPeriodo: course.historialPeriodo ?? null,
+          });
+        });
+
+        const combined: AsignaturaMalla[] = baseCourses.map((course) => {
+          const courseCode = course.codigo.toUpperCase();
+          const projectionInfo = projectionMap.get(course.codigo);
+          const historialInfo = historialMap.get(courseCode) ?? null;
+
+          if (projectionInfo) {
+            projectionMap.delete(course.codigo);
+            return {
+              ...projectionInfo,
+              nombre: course.asignatura,
+              creditos: course.creditos,
+              nivel: Number(course.nivel),
+              prereq: Array.isArray(projectionInfo.prereq) ? projectionInfo.prereq : [],
+              motivos: Array.isArray(projectionInfo.motivos)
+                ? projectionInfo.motivos
+                : projectionInfo.motivos
+                ? [projectionInfo.motivos]
+                : [],
+              historialEstado: historialInfo?.estado ?? projectionInfo.historialEstado ?? null,
+              historialEtiqueta: historialInfo?.etiqueta ?? projectionInfo.historialEtiqueta ?? null,
+              historialPeriodo: historialInfo?.periodo ?? projectionInfo.historialPeriodo ?? null,
+            };
+          }
+
+          return {
+            codigo: course.codigo,
+            nombre: course.asignatura,
+            creditos: course.creditos,
+            nivel: Number(course.nivel),
+            prereq: [],
+            elegible: true,
+            motivos: [],
+            asignado: null,
+            historialEstado: historialInfo?.estado ?? null,
+            historialEtiqueta: historialInfo?.etiqueta ?? null,
+            historialPeriodo: historialInfo?.periodo ?? null,
+          };
+        });
+
+        projectionMap.forEach((course, codigo) => {
+          const base = baseMap.get(codigo);
+          const historialInfo = historialMap.get(codigo.toUpperCase()) ?? null;
+          combined.push({
+            ...course,
+            prereq: Array.isArray(course.prereq) ? course.prereq : [],
+            motivos: Array.isArray(course.motivos) ? course.motivos : course.motivos ? [course.motivos] : [],
+            nombre: course.nombre ?? base?.asignatura ?? course.codigo,
+            creditos: course.creditos ?? base?.creditos ?? 0,
+            nivel: Number(course.nivel ?? base?.nivel ?? 0),
+            historialEstado: historialInfo?.estado ?? course.historialEstado ?? null,
+            historialEtiqueta: historialInfo?.etiqueta ?? course.historialEtiqueta ?? null,
+            historialPeriodo: historialInfo?.periodo ?? course.historialPeriodo ?? null,
+          });
+        });
+
+        setCourses(combined);
+      } catch (error) {
+        console.error(error);
+        showAlert("error", (error as Error).message);
+        setCourses([]);
+      } finally {
+        setLoadingMalla(false);
+      }
+    },
+    [data.carreras, data.rut, showAlert]
+  );
+
+  useEffect(() => {
+    fetchProjections();
+  }, [fetchProjections]);
+
+  useEffect(() => {
+    fetchMalla(selectedProjection?.id);
+  }, [fetchMalla, selectedProjection?.id]);
+
+  const assignedBySemester = useMemo(() => {
+    const map = new Map<number, AsignaturaMalla[]>();
+    const totals = new Map<number, number>();
+    courses
+      .filter((course) => course.asignado?.semestre)
+      .forEach((course) => {
+        const semestre = course.asignado!.semestre!;
+        const list = map.get(semestre) ?? [];
+        list.push(course);
+        map.set(semestre, list);
+        totals.set(semestre, (totals.get(semestre) ?? 0) + course.creditos);
+      });
+    return { map, totals };
+  }, [courses]);
+
+  const unassignedByLevel = useMemo(() => {
+    const grouped: Record<number, AsignaturaMalla[]> = {};
+    courses
+      .filter((course) => !course.asignado)
+      .forEach((course) => {
+        if (!grouped[course.nivel]) grouped[course.nivel] = [];
+        grouped[course.nivel].push(course);
+      });
+    return grouped;
+  }, [courses]);
+
+  const maxSemester = useMemo(() => {
+    const semestres = Array.from(assignedBySemester.map.keys());
+    if (!semestres.length) return 8;
+    return Math.max(8, ...semestres);
+  }, [assignedBySemester.map]);
+
+  const handleDropToSemester = async (codigo: string, semestre: number) => {
+    if (!selectedProjection?.id) {
+      showAlert("info", "Selecciona una versión para modificar la planificación");
+      return;
+    }
+
+    const course = courses.find((item) => item.codigo === codigo);
+    if (!course) return;
+
+    if (course.asignado && course.asignado.semestre === semestre) {
+      setRemovalActive(false);
+      setDraggingCourse(null);
+      return;
+    }
+
+    try {
+      setSaving(true);
+      if (course.asignado) {
+        await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas/${encodeURIComponent(codigo)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ semestre }),
+        });
+      } else {
+        const carreraPrincipal = data.carreras?.[0];
+        const payload = {
+          codigo,
+          semestre,
+          nombre: course.nombre,
+          creditos: course.creditos,
+          nivel: course.nivel,
+          catalogo: carreraPrincipal?.catalogo ?? "GENERAL",
+          prereq: Array.isArray(course.prereq) ? course.prereq : [],
+        };
+        await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      setRemovalActive(false);
+      showAlert("success", "Cambios guardados automáticamente");
+      await Promise.all([fetchMalla(selectedProjection.id), fetchProjections()]);
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+      setDraggingCourse(null);
+      setRemovalActive(false);
+    }
+  };
+
+  const handleRemoveCourse = async (codigo: string) => {
+    if (!selectedProjection?.id) return;
+    const course = courses.find((item) => item.codigo === codigo);
+    if (!course?.asignado) return;
+    try {
+      setSaving(true);
+      await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas/${encodeURIComponent(codigo)}`, {
+        method: "DELETE",
+      });
+      showAlert("success", "Asignatura eliminada del semestre");
+      await Promise.all([fetchMalla(selectedProjection.id), fetchProjections()]);
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+      setDraggingCourse(null);
+      setRemovalActive(false);
+    }
+  };
+
+  const handleEstadoChange = async (codigo: string, estado: EstadoAsignatura) => {
+    if (!selectedProjection?.id) return;
+    try {
+      setSaving(true);
+      await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas/${encodeURIComponent(codigo)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ estado }),
+      });
+      showAlert("success", "Estado actualizado");
+      await Promise.all([fetchMalla(selectedProjection.id), fetchProjections()]);
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+      setDraggingCourse(null);
+    }
+  };
+
+  const handleSelectProjection = (id: number) => {
+    const projection = projections.find((p) => p.id === id);
+    if (!projection) return;
+    setSelectedProjection({ id: projection.id, nombreVersion: projection.nombreVersion, isIdeal: projection.isIdeal });
+    setCompareSelection((current) => (current.includes(id) ? current : current.slice(-1).concat(id)));
+  };
+
+  const handleCreateProjection = async () => {
+    if (!data.rut) {
+      showAlert("error", "No se pudo determinar el estudiante para crear la planificación");
+      return;
+    }
+
+    const nombreVersion = window.prompt("Nombre para la nueva planificación (opcional)")?.trim();
+
+    try {
+      setSaving(true);
+      const response = await fetchJson<{
+        proyeccion: { id: number; nombreVersion: string; isIdeal: boolean };
+      }>(`/proyecciones`, {
+        method: "POST",
+        body: JSON.stringify({
+          rut: data.rut,
+          ...(nombreVersion ? { nombreVersion } : {}),
+        }),
+      });
+
+      showAlert("success", "Planificación creada exitosamente");
+      await fetchProjections();
+      setSelectedProjection({
+        id: response.proyeccion.id,
+        nombreVersion: response.proyeccion.nombreVersion,
+        isIdeal: response.proyeccion.isIdeal,
+      });
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCloneProjection = async (id: number) => {
+    const nombreVersion = window.prompt("Nombre para la nueva versión (opcional)")?.trim();
+    try {
+      setSaving(true);
+      const response = await fetchJson<{
+        proyeccion: { id: number; nombreVersion: string; isIdeal: boolean };
+      }>(`/proyecciones/${id}/clone`, {
+        method: "POST",
+        body: JSON.stringify(nombreVersion ? { nombreVersion } : {}),
+      });
+      showAlert("success", "Versión clonada exitosamente");
+      await fetchProjections();
+      setSelectedProjection({
+        id: response.proyeccion.id,
+        nombreVersion: response.proyeccion.nombreVersion,
+        isIdeal: response.proyeccion.isIdeal,
+      });
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRenameProjection = async (id: number) => {
+    const projection = projections.find((p) => p.id === id);
+    if (!projection) return;
+    const nuevoNombre = window.prompt("Nuevo nombre de la versión", projection.nombreVersion)?.trim();
+    if (!nuevoNombre || nuevoNombre === projection.nombreVersion) return;
+    try {
+      setSaving(true);
+      await fetchJson(`/proyecciones/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ nombreVersion: nuevoNombre }),
+      });
+      showAlert("success", "Versión renombrada");
+      await fetchProjections();
+      if (selectedProjection?.id === id) {
+        setSelectedProjection({ ...selectedProjection, nombreVersion: nuevoNombre });
+      }
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMarkIdeal = async (id: number) => {
+    try {
+      setSaving(true);
+      await fetchJson(`/proyecciones/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isIdeal: true }),
+      });
+      showAlert("success", "Versión marcada como ideal");
+      await fetchProjections();
+      if (selectedProjection?.id === id) {
+        setSelectedProjection({ ...selectedProjection, isIdeal: true });
+      }
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProjection = async (id: number) => {
+    const projection = projections.find((p) => p.id === id);
+    if (!projection) return;
+    const confirmDelete = window.confirm(`¿Eliminar la versión ${projection.nombreVersion}?`);
+    if (!confirmDelete) return;
+    try {
+      setSaving(true);
+      await fetchJson(`/proyecciones/${id}`, { method: "DELETE" });
+      showAlert("success", "Versión eliminada");
+      await fetchProjections();
+      if (selectedProjection?.id === id) {
+        setSelectedProjection(null);
+      }
+      setCompareSelection((current) => current.filter((value) => value !== id));
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleCompareSelection = (id: number) => {
+    setCompareSelection((current) => {
+      if (current.includes(id)) return current.filter((value) => value !== id);
+      if (current.length >= 2) return [current[1], id];
+      return [...current, id];
+    });
+  };
+
+  useEffect(() => {
+    const fetchComparison = async () => {
+      if (compareSelection.length !== 2) {
+        setCompareData(null);
+        return;
+      }
+      setCompareLoading(true);
+      try {
+        const response = await fetchJson<ComparacionResponse>(
+          `/proyecciones/compare?ids=${compareSelection.join(",")}`
+        );
+        setCompareData(response);
+      } catch (error) {
+        console.error(error);
+        showAlert("error", (error as Error).message);
+        setCompareData(null);
+      } finally {
+        setCompareLoading(false);
+      }
+    };
+
+    fetchComparison();
+  }, [compareSelection, showAlert]);
+
+  useEffect(() => {
+    setCompareVisible(compareSelection.length === 2);
+  }, [compareSelection]);
+
+  useEffect(() => {
+    setCompareSelection((current) => current.filter((id) => projections.some((projection) => projection.id === id)));
+  }, [projections]);
+
+  const activeProjectionId = selectedProjection?.id ?? null;
+  const activeVersion = projections.find((p) => p.id === activeProjectionId) ?? null;
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 p-6 shadow">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Planificación académica</h1>
+          <p className="text-sm text-slate-500">
+            Arrastra ramos entre semestres, valida prerrequisitos y compara versiones de tu planificación.
+          </p>
+          {saving && <p className="mt-2 text-xs font-semibold text-blue-600">Guardando cambios...</p>}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => fetchMalla(selectedProjection?.id)}
+            disabled={loadingMalla}
+          >
+            Refrescar datos
+          </button>
+          <button
+            className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleCreateProjection}
+            disabled={saving}
+          >
+            Crear planificación
+          </button>
+          {activeProjectionId && (
+            <button
+              className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => handleCloneProjection(activeProjectionId)}
+              disabled={saving}
+            >
+              Clonar versión actual
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="flex flex-wrap gap-3">
+        {alerts.map((alert) => (
+          <div
+            key={alert.id}
+            className={classNames(
+              "flex items-center gap-2 rounded-full px-4 py-2 text-sm shadow-sm",
+              alert.type === "success" && "bg-emerald-100 text-emerald-800",
+              alert.type === "error" && "bg-red-100 text-red-700",
+              alert.type === "info" && "bg-blue-100 text-blue-700"
+            )}
+          >
+            {alert.text}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
+        <section className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800">
+                {selectedProjection ? `Versión ${selectedProjection.nombreVersion}` : "Sin versión seleccionada"}
+              </h2>
+              {activeVersion && (
+                <p className="text-xs text-slate-500">
+                  Créditos totales: {activeVersion.totalCreditos} · Semestres planificados: {activeVersion.cantidadSemestres}
+                </p>
+              )}
+            </div>
+            {selectedProjection?.isIdeal && (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">⭐ Versión ideal</span>
+            )}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: maxSemester }, (_, index) => index + 1).map((semester) => (
+              <SemesterColumn
+                key={semester}
+                semester={semester}
+                courses={assignedBySemester.map.get(semester) ?? []}
+                totalCredits={assignedBySemester.totals.get(semester) ?? 0}
+                isActiveDrop={activeSemesterDrop === semester}
+                onDropCourse={handleDropToSemester}
+                onDragOver={() => setActiveSemesterDrop(semester)}
+                onDragLeave={() => setActiveSemesterDrop((current) => (current === semester ? null : current))}
+                onDragStart={(codigo) => setDraggingCourse(codigo)}
+                onDragEnd={() => {
+                  setDraggingCourse(null);
+                  setActiveSemesterDrop(null);
+                  setRemovalActive(false);
+                }}
+                onChangeEstado={handleEstadoChange}
+              />
+            ))}
+          </div>
+
+          <RemovalDropZone
+            active={removalActive}
+            onDrop={(codigo) => {
+              handleRemoveCourse(codigo);
+              setRemovalActive(false);
+            }}
+            onHoverChange={setRemovalActive}
+          />
+        </section>
+
+        <aside className="space-y-6">
+          <CoursesPool
+            groupedCourses={unassignedByLevel}
+            activeLevel={draggingCourse ? courses.find((course) => course.codigo === draggingCourse)?.nivel ?? null : null}
+            onDragStart={(codigo) => {
+              setDraggingCourse(codigo);
+            }}
+            onDragEnd={() => {
+              setDraggingCourse(null);
+            }}
+          />
+
+          <section className="space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-5 shadow">
+            <header className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Versiones disponibles</h3>
+              <span className="text-xs text-slate-400">{projections.length} versiones</span>
+            </header>
+            {loadingProyecciones && <p className="text-xs text-slate-500">Cargando versiones...</p>}
+            {!loadingProyecciones && projections.length === 0 && (
+              <div className="space-y-3 text-sm text-slate-500">
+                <p>No hay versiones guardadas todavía.</p>
+                <button
+                  onClick={handleCreateProjection}
+                  className="w-full rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={saving}
+                >
+                  Crear planificación
+                </button>
+              </div>
+            )}
+            <ul className="space-y-3">
+              {projections.map((projection) => {
+                const isSelected = projection.id === activeProjectionId;
+                const isCompared = compareSelection.includes(projection.id);
+                return (
+                  <li
+                    key={projection.id}
+                    className={classNames(
+                      "rounded-xl border p-4 transition",
+                      isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white",
+                      "shadow-sm"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <button
+                          onClick={() => handleSelectProjection(projection.id)}
+                          className="text-left text-sm font-semibold text-slate-800 hover:underline"
+                        >
+                          {projection.nombreVersion}
+                        </button>
+                        <p className="text-xs text-slate-500">
+                          Créditos: {projection.totalCreditos} · Semestres: {projection.cantidadSemestres}
+                        </p>
+                        {projection.isIdeal && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+                            ⭐ Ideal
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-2 text-xs">
+                        <button
+                          onClick={() => handleRenameProjection(projection.id)}
+                          className="rounded-full border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                        >
+                          Renombrar
+                        </button>
+                        <button
+                          onClick={() => handleMarkIdeal(projection.id)}
+                          className="rounded-full border border-amber-300 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                        >
+                          Marcar ideal
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProjection(projection.id)}
+                          className="rounded-full border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-100"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </div>
+                    <label className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={isCompared}
+                        onChange={() => toggleCompareSelection(projection.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Incluir en comparación
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            {projections.length > 0 && (
+              <button
+                onClick={handleCreateProjection}
+                className="w-full rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={saving}
+              >
+                Crear nueva planificación
+              </button>
+            )}
+            {compareSelection.length === 2 && (
+              <button
+                onClick={() => setCompareVisible(true)}
+                className="w-full rounded-full bg-slate-900 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-700"
+              >
+                Ver comparación
+              </button>
+            )}
+          </section>
+        </aside>
+      </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow">
+        <h2 className="text-lg font-semibold text-slate-800">Malla curricular completa</h2>
+        <p className="text-sm text-slate-500">Visualiza todos los ramos ordenados por nivel y su estado actual.</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {Object.entries(
+            courses.reduce<Record<number, AsignaturaMalla[]>>((acc, course) => {
+              if (!acc[course.nivel]) acc[course.nivel] = [];
+              acc[course.nivel].push(course);
+              return acc;
+            }, {})
+          )
+            .sort(([nivelA], [nivelB]) => Number(nivelA) - Number(nivelB))
+            .map(([nivel, list]) => (
+              <div key={nivel} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-700">Nivel {nivel}</h3>
+                  <span className="text-xs text-slate-400">{list.length} ramos</span>
+                </div>
+                <div className="space-y-2">
+                  {list
+                    .sort((a, b) => a.codigo.localeCompare(b.codigo))
+                    .map((course) => (
+                      <div
+                        key={course.codigo}
+                        className={classNames(
+                          "flex items-center justify-between rounded-lg border px-3 py-2 text-xs",
+                          course.asignado
+                            ? estadoColorStyles[course.asignado.estado]
+                            : course.historialEstado
+                            ? estadoColorStyles[course.historialEstado]
+                            : course.elegible
+                            ? "border-slate-300 bg-white"
+                            : "border-gray-300 bg-gray-100 text-gray-600"
+                        )}
+                      >
+                        <div className="space-y-1">
+                          <p className="font-semibold text-inherit">
+                            {course.codigo} · {course.nombre}
+                          </p>
+                          <p className="text-[11px] text-inherit opacity-80">{course.creditos} créditos</p>
+                        </div>
+                        <div
+                          className={classNames(
+                            "text-right text-[11px]",
+                            course.asignado || course.historialEstado
+                              ? "font-semibold text-inherit"
+                              : course.elegible
+                              ? "font-medium text-emerald-600"
+                              : "font-medium text-gray-500"
+                          )}
+                        >
+                          {course.asignado ? (
+                            <span>
+                              {estadoLabels[course.asignado.estado]} · S{course.asignado.semestre ?? "-"}
+                            </span>
+                          ) : course.historialEstado ? (
+                            <span>
+                              {course.historialEtiqueta ?? estadoLabels[course.historialEstado]}
+                              {course.historialPeriodo ? ` · ${course.historialPeriodo}` : ""}
+                            </span>
+                          ) : course.elegible ? (
+                            <span>Disponible</span>
+                          ) : (
+                            <span>Bloqueado</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ))}
+        </div>
+      </section>
+
+      {(loadingMalla || loadingProyecciones) && <p className="text-sm text-slate-500">Actualizando información...</p>}
+
+      <ComparisonPanel
+        visible={compareVisible}
+        loading={compareLoading}
+        selectedIds={compareSelection}
+        data={compareData}
+        onClose={() => setCompareVisible(false)}
+      />
+    </div>
+  );
 };
 
 export default ProyeccionesPage;
