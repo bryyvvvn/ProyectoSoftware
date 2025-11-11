@@ -78,29 +78,6 @@ interface ProyeccionesResponse {
   proyecciones: ProyeccionResumen[];
 }
 
-interface ComparacionAsignaturaCambio {
-  codigo: string;
-  semestres: Record<string, number | null>;
-}
-
-interface ComparacionResponse {
-  versiones: Array<{
-    id: number;
-    nombreVersion: string;
-    isIdeal: boolean;
-    totalCreditos: number;
-    cantidadSemestres: number;
-  }>;
-  comparacion: {
-    baseId: number;
-    comparadaId: number;
-    adelantadas: ComparacionAsignaturaCambio[];
-    atrasadas: ComparacionAsignaturaCambio[];
-    soloBase: string[];
-    soloComparada: string[];
-  } | null;
-}
-
 type AlertKind = "success" | "error" | "info";
 
 interface AlertState {
@@ -175,6 +152,7 @@ const CourseCard: React.FC<{
   const historialPeriodo = course.historialPeriodo ?? null;
   const blocked = !course.elegible && !course.asignado && !historialEstado;
   const isAssigned = Boolean(course.asignado);
+  const isApproved = historialEstado === "cursado" && !isAssigned;
   const baseStyles = blocked
     ? "border-gray-400 bg-gray-200 text-gray-600"
     : isAssigned
@@ -182,12 +160,13 @@ const CourseCard: React.FC<{
     : historialEstado
     ? estadoColorStyles[historialEstado]
     : "border-slate-300 bg-white text-slate-900";
+  const canDrag = draggable && (!blocked || isAssigned) && !isApproved;
 
   return (
     <div
-      draggable={draggable && (!blocked || isAssigned)}
+      draggable={canDrag}
       onDragStart={(event) => {
-        if (!draggable) return;
+        if (!canDrag) return;
         event.dataTransfer.setData("text/plain", course.codigo);
         event.dataTransfer.effectAllowed = "move";
         onDragStart?.(course.codigo);
@@ -197,7 +176,7 @@ const CourseCard: React.FC<{
         "rounded-lg border shadow-sm transition-shadow",
         "p-3 space-y-2",
         baseStyles,
-        draggable && (!blocked || isAssigned) ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed opacity-60"
+        canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed opacity-60"
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -391,114 +370,6 @@ const RemovalDropZone: React.FC<{
   </div>
 );
 
-const ComparisonPanel: React.FC<{
-  visible: boolean;
-  loading: boolean;
-  selectedIds: number[];
-  data: ComparacionResponse | null;
-  onClose: () => void;
-}> = ({ visible, loading, selectedIds, data, onClose }) => {
-  if (!visible) return null;
-
-  const comparar = data?.comparacion ?? null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20 px-4 pb-10 pt-20 sm:items-center">
-      <div className="max-h-full w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">Comparador de versiones</h2>
-            <p className="text-sm text-slate-500">
-              Comparando versiones {selectedIds.map((id) => `#${id}`).join(" y ")}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-full border border-slate-300 px-4 py-1 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
-          >
-            Cerrar
-          </button>
-        </header>
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-6">
-          {loading && <p className="text-sm text-slate-500">Cargando comparación...</p>}
-          {!loading && data && (
-            <div className="space-y-6">
-              <section className="grid gap-4 md:grid-cols-3">
-                {data.versiones.map((version) => (
-                  <div key={version.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <h3 className="text-sm font-semibold text-slate-600">{version.nombreVersion}</h3>
-                    <p className="text-xs text-slate-500">ID: {version.id}</p>
-                    <dl className="mt-3 space-y-2 text-sm text-slate-600">
-                      <div className="flex items-center justify-between">
-                        <dt className="font-medium">Créditos totales</dt>
-                        <dd>{version.totalCreditos}</dd>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <dt className="font-medium">Semestres</dt>
-                        <dd>{version.cantidadSemestres}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                ))}
-              </section>
-
-              {comparar && (
-                <section className="space-y-4">
-                  <h3 className="text-sm font-semibold text-slate-600">Diferencias detectadas</h3>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                      <h4 className="text-sm font-semibold text-emerald-700">Asignaturas adelantadas</h4>
-                      <ul className="mt-2 space-y-2 text-sm text-emerald-700">
-                        {comparar.adelantadas.length === 0 && <li>No hay asignaturas adelantadas.</li>}
-                        {comparar.adelantadas.map((item) => (
-                          <li key={item.codigo}>
-                            {item.codigo}: semestre {item.semestres[String(comparar.comparadaId)]} en comparación vs {item.semestres[String(comparar.baseId)]} en base
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                      <h4 className="text-sm font-semibold text-amber-700">Asignaturas atrasadas</h4>
-                      <ul className="mt-2 space-y-2 text-sm text-amber-700">
-                        {comparar.atrasadas.length === 0 && <li>No hay asignaturas atrasadas.</li>}
-                        {comparar.atrasadas.map((item) => (
-                          <li key={item.codigo}>
-                            {item.codigo}: semestre {item.semestres[String(comparar.comparadaId)]} en comparación vs {item.semestres[String(comparar.baseId)]} en base
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <h4 className="text-sm font-semibold text-slate-700">Solo en versión base</h4>
-                      <ul className="mt-2 space-y-2 text-sm text-slate-600">
-                        {comparar.soloBase.length === 0 && <li>No hay diferencias.</li>}
-                        {comparar.soloBase.map((codigo) => (
-                          <li key={codigo}>{codigo}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <h4 className="text-sm font-semibold text-slate-700">Solo en versión comparada</h4>
-                      <ul className="mt-2 space-y-2 text-sm text-slate-600">
-                        {comparar.soloComparada.length === 0 && <li>No hay diferencias.</li>}
-                        {comparar.soloComparada.map((codigo) => (
-                          <li key={codigo}>{codigo}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </section>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
   const [loadingMalla, setLoadingMalla] = useState(false);
   const [loadingProyecciones, setLoadingProyecciones] = useState(false);
@@ -510,10 +381,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
   const [draggingCourse, setDraggingCourse] = useState<string | null>(null);
   const [activeSemesterDrop, setActiveSemesterDrop] = useState<number | null>(null);
   const [removalActive, setRemovalActive] = useState(false);
-  const [compareSelection, setCompareSelection] = useState<number[]>([]);
-  const [compareVisible, setCompareVisible] = useState(false);
-  const [compareLoading, setCompareLoading] = useState(false);
-  const [compareData, setCompareData] = useState<ComparacionResponse | null>(null);
 
   const showAlert = useCallback((type: AlertKind, text: string) => {
     setAlerts((prev) => [...prev, { id: Date.now(), type, text }]);
@@ -603,11 +470,19 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
             });
           });
 
+        const aprobadasLista = Array.from(historialMap.entries())
+          .filter(([, info]) => info.estado === "cursado")
+          .map(([code]) => code);
+
+
         let projectionResponse: MallaResponse | null = null;
         try {
-          const url = projectionId
-            ? `/malla/${encodeURIComponent(data.rut)}?proyeccionId=${projectionId}`
-            : `/malla/${encodeURIComponent(data.rut)}`;
+          const params = new URLSearchParams();
+          if (projectionId) params.set("proyeccionId", String(projectionId));
+          if (carrera.codigo) params.set("carrera", carrera.codigo);
+          if (carrera.catalogo) params.set("catalogo", carrera.catalogo);
+          if (aprobadasLista.length) params.set("aprobadas", aprobadasLista.join(","));
+          const url = `/malla/${encodeURIComponent(data.rut)}${params.toString() ? `?${params.toString()}` : ""}`;
           projectionResponse = await fetchJson<MallaResponse>(url);
           setSelectedProjection(projectionResponse.proyeccionSeleccionada);
         } catch (error) {
@@ -720,7 +595,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
   const unassignedByLevel = useMemo(() => {
     const grouped: Record<number, AsignaturaMalla[]> = {};
     courses
-      .filter((course) => !course.asignado)
+      .filter((course) => !course.asignado && course.historialEstado !== "cursado")
       .forEach((course) => {
         if (!grouped[course.nivel]) grouped[course.nivel] = [];
         grouped[course.nivel].push(course);
@@ -733,6 +608,16 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     if (!semestres.length) return 8;
     return Math.max(8, ...semestres);
   }, [assignedBySemester.map]);
+
+  const approvedCourseCodes = useMemo(() => {
+    const codes = new Set<string>();
+    courses.forEach((course) => {
+      if (course.historialEstado === "cursado" || course.asignado?.estado === "cursado") {
+        codes.add(course.codigo.toUpperCase());
+      }
+    });
+    return Array.from(codes);
+  }, [courses]);
 
   const handleDropToSemester = async (codigo: string, semestre: number) => {
     if (!selectedProjection?.id) {
@@ -754,7 +639,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       if (course.asignado) {
         await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas/${encodeURIComponent(codigo)}`, {
           method: "PATCH",
-          body: JSON.stringify({ semestre }),
+          body: JSON.stringify({ semestre, aprobadas: approvedCourseCodes }),
         });
       } else {
         const carreraPrincipal = data.carreras?.[0];
@@ -766,6 +651,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           nivel: course.nivel,
           catalogo: carreraPrincipal?.catalogo ?? "GENERAL",
           prereq: Array.isArray(course.prereq) ? course.prereq : [],
+          aprobadas: approvedCourseCodes,
         };
         await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas`, {
           method: "POST",
@@ -812,7 +698,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       setSaving(true);
       await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas/${encodeURIComponent(codigo)}`, {
         method: "PATCH",
-        body: JSON.stringify({ estado }),
+        body: JSON.stringify({ estado, aprobadas: approvedCourseCodes }),
       });
       showAlert("success", "Estado actualizado");
       await Promise.all([fetchMalla(selectedProjection.id), fetchProjections()]);
@@ -829,7 +715,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     const projection = projections.find((p) => p.id === id);
     if (!projection) return;
     setSelectedProjection({ id: projection.id, nombreVersion: projection.nombreVersion, isIdeal: projection.isIdeal });
-    setCompareSelection((current) => (current.includes(id) ? current : current.slice(-1).concat(id)));
   };
 
   const handleCreateProjection = async () => {
@@ -949,7 +834,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       if (selectedProjection?.id === id) {
         setSelectedProjection(null);
       }
-      setCompareSelection((current) => current.filter((value) => value !== id));
     } catch (error) {
       console.error(error);
       showAlert("error", (error as Error).message);
@@ -957,46 +841,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       setSaving(false);
     }
   };
-
-  const toggleCompareSelection = (id: number) => {
-    setCompareSelection((current) => {
-      if (current.includes(id)) return current.filter((value) => value !== id);
-      if (current.length >= 2) return [current[1], id];
-      return [...current, id];
-    });
-  };
-
-  useEffect(() => {
-    const fetchComparison = async () => {
-      if (compareSelection.length !== 2) {
-        setCompareData(null);
-        return;
-      }
-      setCompareLoading(true);
-      try {
-        const response = await fetchJson<ComparacionResponse>(
-          `/proyecciones/compare?ids=${compareSelection.join(",")}`
-        );
-        setCompareData(response);
-      } catch (error) {
-        console.error(error);
-        showAlert("error", (error as Error).message);
-        setCompareData(null);
-      } finally {
-        setCompareLoading(false);
-      }
-    };
-
-    fetchComparison();
-  }, [compareSelection, showAlert]);
-
-  useEffect(() => {
-    setCompareVisible(compareSelection.length === 2);
-  }, [compareSelection]);
-
-  useEffect(() => {
-    setCompareSelection((current) => current.filter((id) => projections.some((projection) => projection.id === id)));
-  }, [projections]);
 
   const activeProjectionId = selectedProjection?.id ?? null;
   const activeVersion = projections.find((p) => p.id === activeProjectionId) ?? null;
@@ -1007,7 +851,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Planificación académica</h1>
           <p className="text-sm text-slate-500">
-            Arrastra ramos entre semestres, valida prerrequisitos y compara versiones de tu planificación.
+            Arrastra ramos entre semestres y valida prerrequisitos de tu planificación.
           </p>
           {saving && <p className="mt-2 text-xs font-semibold text-blue-600">Guardando cambios...</p>}
         </div>
@@ -1137,7 +981,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
             <ul className="space-y-3">
               {projections.map((projection) => {
                 const isSelected = projection.id === activeProjectionId;
-                const isCompared = compareSelection.includes(projection.id);
                 return (
                   <li
                     key={projection.id}
@@ -1185,15 +1028,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
                         </button>
                       </div>
                     </div>
-                    <label className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                      <input
-                        type="checkbox"
-                        checked={isCompared}
-                        onChange={() => toggleCompareSelection(projection.id)}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      Incluir en comparación
-                    </label>
                   </li>
                 );
               })}
@@ -1207,14 +1041,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
                 Crear nueva planificación
               </button>
             )}
-            {compareSelection.length === 2 && (
-              <button
-                onClick={() => setCompareVisible(true)}
-                className="w-full rounded-full bg-slate-900 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-700"
-              >
-                Ver comparación
-              </button>
-            )}
+        
           </section>
         </aside>
       </div>
@@ -1295,13 +1122,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
 
       {(loadingMalla || loadingProyecciones) && <p className="text-sm text-slate-500">Actualizando información...</p>}
 
-      <ComparisonPanel
-        visible={compareVisible}
-        loading={compareLoading}
-        selectedIds={compareSelection}
-        data={compareData}
-        onClose={() => setCompareVisible(false)}
-      />
     </div>
   );
 };

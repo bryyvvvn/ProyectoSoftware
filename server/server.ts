@@ -112,6 +112,202 @@ async function main() {
       }
     };
 
+     const toNormalizedCode = (value: unknown) => {
+      if (typeof value === "string") return normalizeCodigo(value);
+      if (typeof value === "number") return normalizeCodigo(String(value));
+      return "";
+    };
+
+    const parseApprovedCodes = (input: unknown): Set<string> => {
+      const codes = new Set<string>();
+
+      const process = (value: unknown) => {
+        if (value === null || value === undefined) return;
+        if (Array.isArray(value)) {
+          value.forEach(process);
+          return;
+        }
+        if (typeof value === "string") {
+          value
+            .split(/[;,]|\s+y\s+|\s+o\s+|\s*\+\s*|\s*\/\s*/i)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .forEach((item) => {
+              const normalized = toNormalizedCode(item);
+              if (normalized) codes.add(normalized);
+            });
+          return;
+        }
+        if (typeof value === "number") {
+          const normalized = toNormalizedCode(value);
+          if (normalized) codes.add(normalized);
+          return;
+        }
+        if (typeof value === "object") {
+          Object.values(value as Record<string, unknown>).forEach(process);
+        }
+      };
+
+      process(input);
+      return codes;
+    };
+
+    const extractPrerequisiteCodes = (course: any): string[] => {
+      if (!course || typeof course !== "object") return [];
+
+      const rawCandidates: unknown[] = [];
+      for (const [key, value] of Object.entries(course)) {
+        const normalizedKey = key.toLowerCase();
+        if (normalizedKey.includes("req")) {
+          rawCandidates.push(value);
+        }
+      }
+
+      const collected: string[] = [];
+
+      const process = (value: unknown) => {
+        if (!value && value !== 0) return;
+        if (Array.isArray(value)) {
+          value.forEach(process);
+          return;
+        }
+        if (typeof value === "string") {
+          const normalizedString = value
+            .split(/[;,]|\s+y\s+|\s+o\s+|\s*\+\s*|\s*\/\s*/i)
+            .map((item) => item.trim())
+            .filter(Boolean);
+          normalizedString.forEach((item) => {
+            const normalized = toNormalizedCode(item);
+            if (normalized && normalized !== "0") collected.push(normalized);
+          });
+          return;
+        }
+        if (typeof value === "number") {
+          const normalized = toNormalizedCode(value);
+          if (normalized && normalized !== "0") collected.push(normalized);
+          return;
+        }
+        if (typeof value === "object") {
+          const objectValue = value as Record<string, unknown>;
+          if (typeof objectValue.codigo === "string" || typeof objectValue.codigo === "number") {
+            const normalized = toNormalizedCode(objectValue.codigo);
+            if (normalized && normalized !== "0") collected.push(normalized);
+            return;
+          }
+          Object.values(objectValue).forEach(process);
+        }
+      };
+
+      rawCandidates.forEach(process);
+
+      return Array.from(new Set(collected));
+    };
+
+    const syncAsignaturasDesdeMalla = async (
+      codCarrera: string,
+      catalogo: string,
+      cursos?: unknown[]
+    ): Promise<unknown[]> => {
+      const carreraCodigo = sanitizeString(codCarrera);
+      const catalogoCodigo = sanitizeString(catalogo);
+      if (!carreraCodigo || !catalogoCodigo) return Array.isArray(cursos) ? cursos : [];
+
+      let cursosLista: unknown[] = Array.isArray(cursos) ? cursos : [];
+
+      if (!cursosLista.length) {
+        try {
+          const queryParam = `${carreraCodigo}-${catalogoCodigo}`;
+          const url = `https://losvilos.ucn.cl/hawaii/api/mallas?${encodeURIComponent(queryParam)}`;
+          const response = await fetch(url, { headers: { "X-HAWAII-AUTH": "jf400fejof13f" } });
+          const data = await response.json();
+          cursosLista = Array.isArray(data) ? data : data?.malla || data?.data || [];
+          if (!Array.isArray(cursosLista)) cursosLista = [];
+        } catch (syncError) {
+          console.error("No se pudo sincronizar la malla curricular desde la API externa:", syncError);
+          return Array.isArray(cursos) ? cursos : [];
+        }
+      }
+
+      const cursosNormalizados = cursosLista
+        .map((raw) => {
+          if (!raw || typeof raw !== "object") return null;
+          const objeto = raw as Record<string, unknown>;
+          const codigo =
+            toNormalizedCode(
+              extractFirstNonEmpty(
+                objeto.codigo,
+                objeto.CODIGO,
+                objeto.codAsignatura,
+                objeto.cod_asignatura,
+                objeto.cod,
+                objeto.sigla
+              )
+            ) || "";
+          const nombre =
+            extractFirstNonEmpty(
+              objeto.asignatura,
+              objeto.nombre,
+              objeto.nombre_asignatura,
+              objeto.descripcion,
+              objeto.title
+            ) || codigo;
+          const creditos = Number.parseInt(String(objeto.creditos ?? objeto.credito ?? objeto.credits ?? 0), 10);
+          const nivel = Number.parseInt(String(objeto.nivel ?? objeto.level ?? objeto.semestre ?? 0), 10);
+          const prereq = extractPrerequisiteCodes(objeto).map((code) => normalizeCodigo(code)).filter(Boolean);
+
+          if (!codigo || !nombre || Number.isNaN(creditos) || Number.isNaN(nivel)) return null;
+
+          const prereqOrdenados = Array.from(new Set(prereq)).sort();
+
+          return {
+            codigo,
+            nombre,
+            creditos: Math.max(0, creditos),
+            nivel: Math.max(0, nivel),
+            prereq: prereqOrdenados,
+            catalogo: catalogoCodigo,
+          };
+        })
+        .filter((item): item is { codigo: string; nombre: string; creditos: number; nivel: number; prereq: string[]; catalogo: string } =>
+          item !== null
+        );
+
+      for (const curso of cursosNormalizados) {
+        const existente = await asignaturaRepo.findOne({ where: { codigo: curso.codigo } });
+        if (!existente) {
+          const nuevo = asignaturaRepo.create({
+            codigo: curso.codigo,
+            nombre: curso.nombre,
+            creditos: curso.creditos,
+            nivel: curso.nivel,
+            prereq: curso.prereq.length ? curso.prereq : null,
+            catalogo: curso.catalogo,
+          });
+          await asignaturaRepo.save(nuevo);
+          continue;
+        }
+
+        const updates: Partial<Asignatura> = {};
+        if (existente.nombre !== curso.nombre) updates.nombre = curso.nombre;
+        if (existente.creditos !== curso.creditos) updates.creditos = curso.creditos;
+        if (existente.nivel !== curso.nivel) updates.nivel = curso.nivel;
+        if (existente.catalogo !== curso.catalogo) updates.catalogo = curso.catalogo;
+
+        const prereqActuales = Array.isArray(existente.prereq) ? existente.prereq : [];
+        if (curso.prereq.length && (prereqActuales.length !== curso.prereq.length || prereqActuales.some((value, index) => value !== curso.prereq[index]))) {
+          updates.prereq = curso.prereq;
+        } else if (!prereqActuales.length && existente.prereq !== null && existente.prereq !== undefined && !curso.prereq.length) {
+          updates.prereq = null;
+        }
+
+        if (Object.keys(updates).length) {
+          await asignaturaRepo.update(existente.codigo, updates);
+        }
+      }
+
+      return cursosLista;
+    };
+
     type AssignmentWithCourse = ProyeccionAsignatura & { asignatura: Asignatura };
 
     const ESTADOS_VALIDOS = ["cursado", "reprobado", "proyectado"] as const;
@@ -139,14 +335,23 @@ async function main() {
     const validatePrerequisites = (
       targetCourse: Asignatura,
       assignments: AssignmentWithCourse[],
-      targetSemester?: number | null
+      targetSemester?: number | null,
+      approvedCourses?: Set<string>
     ): { ok: true } | { ok: false; message: string } => {
-      const prereqs = targetCourse.prereq || [];
+      const prereqs = Array.isArray(targetCourse.prereq)
+        ? targetCourse.prereq.map((codigo) => normalizeCodigo(codigo)).filter(Boolean)
+        : [];
       if (!prereqs.length) return { ok: true };
 
       const missing = prereqs.filter((code) => {
+        const normalizedCode = normalizeCodigo(code);
+        if (!normalizedCode) return false;
+        if (approvedCourses?.has(normalizedCode)) return false;
+
         return !assignments.some((assignment) => {
-          if (!assignment.asignatura || assignment.asignatura.codigo !== code) return false;
+          if (!assignment.asignatura) return false;
+          const assignmentCode = normalizeCodigo(assignment.asignatura.codigo);
+          if (assignmentCode !== normalizedCode) return false;
           if (assignment.estado === "cursado") return true;
           if (
             targetSemester !== undefined &&
@@ -190,8 +395,17 @@ async function main() {
     app.get("/malla/:rut", async (req, res) => {
       const { rut } = req.params;
       const proyeccionIdParam = req.query.proyeccionId as string | undefined;
+      const carreraCodigoQuery = req.query.carrera as string | undefined;
+      const catalogoQuery = req.query.catalogo as string | undefined;
+      const approvedCourses = parseApprovedCodes(req.query.aprobadas);
 
       try {
+        if (carreraCodigoQuery && catalogoQuery) {
+          await syncAsignaturasDesdeMalla(carreraCodigoQuery, catalogoQuery).catch((error) =>
+            console.error("No se pudo actualizar la malla antes de obtener la proyección:", error)
+          );
+        }
+
         const asignaturas = await asignaturaRepo.find();
 
         let proyeccion: Proyeccion | null = null;
@@ -231,7 +445,8 @@ async function main() {
             const prereqCheck = validatePrerequisites(
               curso,
               assignments.filter((a) => a.id !== asignacion.id),
-              asignacion.semestre
+              asignacion.semestre,
+              approvedCourses
             );
             if (!prereqCheck.ok) {
               motivos.push(prereqCheck.message);
@@ -246,7 +461,7 @@ async function main() {
 
             elegible = motivos.length === 0;
           } else {
-            const prereqCheck = validatePrerequisites(curso, assignments, undefined);
+            const prereqCheck = validatePrerequisites(curso, assignments, undefined, approvedCourses);
             if (!prereqCheck.ok) {
               motivos.push(prereqCheck.message);
               elegible = false;
@@ -352,10 +567,12 @@ async function main() {
         nivel?: number;
         catalogo?: string;
         prereq?: unknown;
+        aprobadas?: unknown;
       };
 
       const codigo = sanitizeString(body.codigo);
       const semestre = body.semestre;
+      const approvedCourses = parseApprovedCodes(body.aprobadas);
 
       if (!codigo) {
         return res.status(400).json({ error: "Debe indicar el código de la asignatura" });
@@ -418,7 +635,7 @@ async function main() {
 
         const semestreNumero = semestre as number;
 
-        const prereqCheck = validatePrerequisites(asignatura, assignments, semestreNumero);
+        const prereqCheck = validatePrerequisites(asignatura, assignments, semestreNumero, approvedCourses);
         if (!prereqCheck.ok) {
           return res.status(400).json({ error: prereqCheck.message });
         }
@@ -459,7 +676,8 @@ async function main() {
         return res.status(400).json({ error: "El id de proyección debe ser numérico" });
       }
 
-      const { semestre, estado } = req.body as { semestre?: number; estado?: string };
+      const { semestre, estado, aprobadas } = req.body as { semestre?: number; estado?: string; aprobadas?: unknown };
+      const approvedCourses = parseApprovedCodes(aprobadas);
 
       if (semestre !== undefined && (!Number.isInteger(semestre) || semestre < 1)) {
         return res.status(400).json({ error: "Debe indicar un semestre válido (entero positivo)" });
@@ -489,7 +707,8 @@ async function main() {
         const prereqCheck = validatePrerequisites(
           asignacion.asignatura,
           assignments.filter((a) => a.id !== asignacion.id),
-          nuevoSemestre
+          nuevoSemestre,
+          approvedCourses
         );
         if (!prereqCheck.ok) {
           return res.status(400).json({ error: prereqCheck.message });
@@ -884,8 +1103,12 @@ async function main() {
         const response = await fetch(url, { headers: { "X-HAWAII-AUTH": "jf400fejof13f" } });
         const data = await response.json();
         const cursos = Array.isArray(data) ? data : data.malla || data.data || [];
-        console.log("✅ Cursos enviados al frontend:", cursos.length);
-        return res.json(cursos);
+        const lista = Array.isArray(cursos) ? cursos : [];
+        await syncAsignaturasDesdeMalla(codigo, catalogo, lista).catch((error) =>
+          console.error("No se pudo sincronizar la malla curricular durante la carga inicial:", error)
+        );
+        console.log("✅ Cursos enviados al frontend:", lista.length);
+        return res.json(lista);
       } catch (err) {
         console.error("Error al obtener la malla:", err);
         return res.status(500).json({ error: "Error al obtener la malla" });
