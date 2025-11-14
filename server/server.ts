@@ -2,11 +2,15 @@ import "reflect-metadata"; // debe ir primero
 import express from "express";
 import cors from "cors";
 import { AppDataSource } from "./db";
-import { In } from 'typeorm';
+import { In } from "typeorm";
 import { Asignatura } from "./entidades/Asignatura";
 import { Proyeccion } from "./entidades/Proyeccion";
 import { ProyeccionAsignatura } from "./entidades/Proyeccion_Asignatura";
 import { Estudiante } from "./entidades/Estudiante";
+import { ProjectionService } from "./modules/projections/projection.service";
+import { ProjectionController } from "./modules/projections/projection.controller";
+import { createProjectionRouter } from "./modules/projections/projection.routes";
+import { errorHandler } from "./middlewares/errorHandler";
 
 const app = express();
 app.use(express.json());
@@ -22,6 +26,11 @@ async function main() {
     const proyeccionRepo = AppDataSource.getRepository(Proyeccion);
     const proyeccionAsignaturaRepo = AppDataSource.getRepository(ProyeccionAsignatura);
     const estudianteRepo = AppDataSource.getRepository(Estudiante);
+
+    const projectionService = new ProjectionService(proyeccionRepo, proyeccionAsignaturaRepo);
+    const projectionController = new ProjectionController(projectionService);
+
+    app.use("/api", createProjectionRouter(projectionController));
 
     const sanitizeString = (value: unknown) => {
       if (typeof value !== "string") return "";
@@ -762,71 +771,7 @@ async function main() {
       }
     });
 
-    app.post("/proyecciones/:id/clone", async (req, res) => {
-      const proyeccionId = Number.parseInt(req.params.id, 10);
-      if (Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-      }
-
-      const { nombreVersion } = req.body as { nombreVersion?: string };
-
-      try {
-        const original = await findProjectionById(proyeccionId);
-        if (!original) return res.status(404).json({ error: "Proyección no encontrada" });
-
-        const rutEstudiante = original.estudiante?.rut;
-        if (!rutEstudiante) {
-          return res.status(400).json({ error: "La proyección no tiene estudiante asociado" });
-        }
-
-        const nombrePropuesto = nombreVersion?.trim();
-        let nombreFinal = nombrePropuesto;
-        if (!nombreFinal) {
-          const cantidad = await proyeccionRepo.count({ where: { estudiante: { rut: rutEstudiante } } });
-          nombreFinal = `v${cantidad + 1}`;
-        }
-
-        const nombreExiste = await proyeccionRepo.findOne({
-          where: { estudiante: { rut: rutEstudiante }, nombreVersion: nombreFinal },
-        });
-        if (nombreExiste) {
-          return res.status(409).json({ error: "Ya existe una versión con ese nombre" });
-        }
-
-        const nuevaProyeccion = proyeccionRepo.create({
-          estudiante: original.estudiante,
-          nombreVersion: nombreFinal,
-          isIdeal: false,
-        });
-
-        await proyeccionRepo.save(nuevaProyeccion);
-
-        const assignments = getAssignmentsWithCourse(original).map((asignacion) =>
-          proyeccionAsignaturaRepo.create({
-            proyeccion: nuevaProyeccion,
-            asignatura: asignacion.asignatura,
-            estado: asignacion.estado,
-            semestre: asignacion.semestre,
-          })
-        );
-
-        if (assignments.length) {
-          await proyeccionAsignaturaRepo.save(assignments);
-        }
-
-        return res.status(201).json({
-          message: "Proyección clonada correctamente",
-          proyeccion: {
-            id: nuevaProyeccion.id,
-            nombreVersion: nuevaProyeccion.nombreVersion,
-            isIdeal: nuevaProyeccion.isIdeal,
-          },
-        });
-      } catch (error) {
-        console.error("Error al clonar la proyección:", error);
-        return res.status(500).json({ error: "Error al clonar la proyección" });
-      }
-    });
+    app.post("/proyecciones/:id/clone", projectionController.cloneFromParam);
 
     app.get("/proyecciones/:rut", async (req, res) => {
       const { rut } = req.params;
@@ -1130,6 +1075,8 @@ async function main() {
         res.status(500).json({ error: "Error al obtener avance académico" });
       }
     });
+
+    app.use(errorHandler);
 
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => console.log(`✅ Servidor escuchando en http://localhost:${PORT}`));
