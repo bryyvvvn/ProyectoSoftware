@@ -2,6 +2,8 @@ node_modules
 npm-debug.log*
 /tmp
 *.log
+dist
+server/dist
 
 # Ignorar variables de entorno
 .env
