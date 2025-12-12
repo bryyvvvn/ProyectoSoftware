@@ -4,8 +4,9 @@ import { Proyeccion } from "../entidades/Proyeccion";
 import { ProyeccionAsignatura } from "../entidades/Proyeccion_Asignatura";
 import { RepositoryFactory } from "../repositories/RepositoryFactory";
 import { HttpError } from "../errors/HttpError";
-
-type AssignmentWithCourse = ProyeccionAsignatura & { asignatura: Asignatura };
+import { AssignmentWithCourse } from "../types/AssignmentWithCourse";
+import { ApprovedCoursesParser, DefaultApprovedCoursesParser } from "./parsers/ApprovedCoursesParser";
+import { DefaultPrerequisiteValidator, PrerequisiteValidator } from "./validators/PrerequisiteValidator";
 
 type CurriculumResult = {
   proyeccionSeleccionada: {
@@ -33,7 +34,19 @@ export class AcademicPlanningService {
 
   private readonly ESTADOS_VALIDOS = ["cursado", "reprobado", "proyectado"] as const;
 
-  constructor(private readonly repositoryFactory: RepositoryFactory) {}
+  private readonly approvedCoursesParser: ApprovedCoursesParser;
+  private readonly prerequisiteValidator: PrerequisiteValidator;
+
+  constructor(
+    private readonly repositoryFactory: RepositoryFactory,
+    approvedCoursesParser?: ApprovedCoursesParser,
+    prerequisiteValidator?: PrerequisiteValidator
+  ) {
+    this.approvedCoursesParser =
+      approvedCoursesParser || new DefaultApprovedCoursesParser((value) => this.toNormalizedCode(value));
+    this.prerequisiteValidator =
+      prerequisiteValidator || new DefaultPrerequisiteValidator((value) => this.normalizeCodigo(value));
+  }
 
   async ensureEstudiantesFromLoginPayload(payload: any): Promise<void> {
     if (!payload || typeof payload !== "object") return;
@@ -110,37 +123,7 @@ export class AcademicPlanningService {
   }
 
   parseApprovedCodes(input: unknown): Set<string> {
-    const codes = new Set<string>();
-
-    const process = (value: unknown) => {
-      if (value === null || value === undefined) return;
-      if (Array.isArray(value)) {
-        value.forEach(process);
-        return;
-      }
-      if (typeof value === "string") {
-        value
-          .split(/[;,]|\s+y\s+|\s+o\s+|\s*\+\s*|\s*\/\s*/i)
-          .map((item) => item.trim())
-          .filter(Boolean)
-          .forEach((item) => {
-            const normalized = this.toNormalizedCode(item);
-            if (normalized) codes.add(normalized);
-          });
-        return;
-      }
-      if (typeof value === "number") {
-        const normalized = this.toNormalizedCode(value);
-        if (normalized) codes.add(normalized);
-        return;
-      }
-      if (typeof value === "object") {
-        Object.values(value as Record<string, unknown>).forEach(process);
-      }
-    };
-
-    process(input);
-    return codes;
+    return this.approvedCoursesParser.parse(input);
   }
 
   async getStudentCurriculum(params: {
@@ -952,40 +935,7 @@ export class AcademicPlanningService {
     targetSemester?: number | null,
     approvedCourses?: Set<string>
   ): { ok: true } | { ok: false; message: string } {
-    const prereqs = Array.isArray(targetCourse.prereq)
-      ? targetCourse.prereq.map((codigo) => this.normalizeCodigo(codigo)).filter(Boolean)
-      : [];
-    if (!prereqs.length) return { ok: true };
-
-    const missing = prereqs.filter((code) => {
-      const normalizedCode = this.normalizeCodigo(code);
-      if (!normalizedCode) return false;
-      if (approvedCourses?.has(normalizedCode)) return false;
-
-      return !assignments.some((assignment) => {
-        if (!assignment.asignatura) return false;
-        const assignmentCode = this.normalizeCodigo(assignment.asignatura.codigo);
-        if (assignmentCode !== normalizedCode) return false;
-        if (assignment.estado === "cursado") return true;
-        if (
-          targetSemester !== undefined &&
-          targetSemester !== null &&
-          assignment.semestre !== null &&
-          assignment.semestre !== undefined &&
-          assignment.semestre < targetSemester &&
-          assignment.estado !== "reprobado"
-        ) {
-          return true;
-        }
-        return false;
-      });
-    });
-
-    if (missing.length) {
-      return { ok: false, message: `Faltan prerrequisitos: ${missing.join(", ")}` };
-    }
-
-    return { ok: true };
+    return this.prerequisiteValidator.validate(targetCourse, assignments, targetSemester, approvedCourses);
   }
 
   private buildProjectionMetrics(proyeccion: Proyeccion) {

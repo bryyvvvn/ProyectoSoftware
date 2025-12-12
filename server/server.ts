@@ -71,6 +71,7 @@ async function main() {
       }
 
       try {
+        const approvedCourses = planningService.parseApprovedCodes(req.body?.aprobadas);
         const respuesta = await planningService.addCourseToProjection(proyeccionId, req.body, approvedCourses);
         return res.status(201).json(respuesta);
       } catch (error) {
