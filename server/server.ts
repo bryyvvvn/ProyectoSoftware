@@ -2,7 +2,7 @@ import "reflect-metadata"; // debe ir primero
 import express from "express";
 import cors from "cors";
 import { AppDataSource } from "./db";
-import { RepositoryFactory } from "./repositories/RepositoryFactory";
+import { RepositoryFactory, RepositoryFactoryPort } from "./repositories/RepositoryFactory";
 import { AcademicPlanningService } from "./services/AcademicPlanningService";
 import { HttpError } from "./errors/HttpError";
 
@@ -18,29 +18,49 @@ const handleError = (res: express.Response, error: unknown, fallback: string) =>
   return res.status(500).json({ error: fallback });
 };
 
+const parseNumericParam = (value: string | undefined, fieldName: string): number => {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+  if (Number.isNaN(parsed)) {
+    throw new HttpError(400, `El parámetro ${fieldName} debe ser numérico`);
+  }
+  return parsed;
+};
+
+const executeWithErrorHandling = async (
+  res: express.Response,
+  fallbackMessage: string,
+  operation: () => Promise<express.Response>
+) => {
+  try {
+    return await operation();
+  } catch (error) {
+    return handleError(res, error, fallbackMessage);
+  }
+};
+
 async function main() {
   try {
     await AppDataSource.initialize();
     console.log("✅ Conectado a Neon PostgreSQL");
 
-    const repositoryFactory = new RepositoryFactory(AppDataSource);
+    const repositoryFactory: RepositoryFactoryPort = new RepositoryFactory(AppDataSource);
     const planningService = new AcademicPlanningService(repositoryFactory);
 
 
     // PLANIFICACIÓN ACADÉMICA
     app.get("/malla/:rut", async (req, res) => {
       const { rut } = req.params;
-      const proyeccionIdParam = req.query.proyeccionId as string | undefined;
       const carreraCodigoQuery = req.query.carrera as string | undefined;
       const catalogoQuery = req.query.catalogo as string | undefined;
       const approvedCourses = planningService.parseApprovedCodes(req.query.aprobadas);
 
-      const proyeccionId = proyeccionIdParam ? Number.parseInt(proyeccionIdParam, 10) : undefined;
-      if (proyeccionIdParam && Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El parámetro proyeccionId debe ser numérico" });
-      }
+      const proyeccionIdParam = req.query.proyeccionId as string | undefined;
+      const proyeccionId =
+        proyeccionIdParam && proyeccionIdParam.length > 0
+          ? parseNumericParam(proyeccionIdParam, "proyeccionId")
+          : undefined;
 
-      try {
+        return executeWithErrorHandling(res, "Error al obtener la malla del estudiante", async () => {
         const resultado = await planningService.getStudentCurriculum({
           rut,
           proyeccionId,
@@ -49,119 +69,79 @@ async function main() {
           approvedCourses,
         });
         return res.json(resultado);
-      } catch (error) {
-        return handleError(res, error, "Error al obtener la malla del estudiante");
-      }
+      });
     });
 
-    app.post("/proyecciones", async (req, res) => {
-      try{
-      const respuesta = await planningService.createProjection(req.body?.rut, req.body?.nombreVersion);
+    app.post("/proyecciones", async (req, res) =>
+      executeWithErrorHandling(res, "Error al crear la proyección", async () => {
+        const respuesta = await planningService.createProjection(req.body?.rut, req.body?.nombreVersion);
         return res.status(201).json(respuesta);
-      } catch (error) {
-        return handleError(res, error, "Error al crear la proyección");
-      }
-    });
+        })
+    );
 
     app.post("/proyecciones/:id/asignaturas", async (req, res) => {
-      const proyeccionId = Number.parseInt(req.params.id, 10);
-
-      if (Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-      }
-
-      try {
-        const approvedCourses = planningService.parseApprovedCodes(req.body?.aprobadas);
-        const respuesta = await planningService.addCourseToProjection(proyeccionId, req.body, approvedCourses);
-        return res.status(201).json(respuesta);
-      } catch (error) {
-        return handleError(res, error, "Error al guardar la asignatura en la proyección");
-      }
-    });
-
-    app.patch("/proyecciones/:id/asignaturas/:codigo", async (req, res) => {
-      const proyeccionId = Number.parseInt(req.params.id, 10);
-      if (Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-      }
+      const proyeccionId = parseNumericParam(req.params.id, "id de proyección");
 
       const approvedCourses = planningService.parseApprovedCodes(req.body?.aprobadas);
 
-      try {
+      return executeWithErrorHandling(
+        res,
+        "Error al guardar la asignatura en la proyección",
+        async () => {
+          const respuesta = await planningService.addCourseToProjection(proyeccionId, req.body, approvedCourses);
+          return res.status(201).json(respuesta);
+        }
+      );
+    });
+
+    app.patch("/proyecciones/:id/asignaturas/:codigo", async (req, res) => {
+
+      const proyeccionId = parseNumericParam(req.params.id, "id de proyección");
+      const approvedCourses = planningService.parseApprovedCodes(req.body?.aprobadas);
+
+      return executeWithErrorHandling(res, "Error al actualizar la asignatura", async () => {
         const respuesta = await planningService.updateAssignment(proyeccionId, req.params.codigo, req.body, approvedCourses);
         return res.json(respuesta);
-      } catch (error) {
-        return handleError(res, error, "Error al actualizar la asignatura");
-      }
+      });
     });
 
     app.delete("/proyecciones/:id/asignaturas/:codigo", async (req, res) => {
-      const proyeccionId = Number.parseInt(req.params.id, 10);
+      const proyeccionId = parseNumericParam(req.params.id, "id de proyección");
 
-      if (Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-      }
-
-      try {
+      return executeWithErrorHandling(res, "Error al eliminar la asignatura", async () => {
         const respuesta = await planningService.removeAssignment(proyeccionId, req.params.codigo);
         return res.json(respuesta);
-
-      } catch (error) {
-        return handleError(res, error, "Error al eliminar la asignatura");
-      }
+      });
     });
 
     app.post("/proyecciones/:id/clone", async (req, res) => {
-      const proyeccionId = Number.parseInt(req.params.id, 10);
-      if (Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-      }
+      const proyeccionId = parseNumericParam(req.params.id, "id de proyección");
 
-
-      try {
+      return executeWithErrorHandling(res, "Error al clonar la proyección", async () => {
         const respuesta = await planningService.cloneProjection(proyeccionId, req.body?.nombreVersion);
         return res.status(201).json(respuesta);
-
-      } catch (error) {
-
-        return handleError(res, error, "Error al clonar la proyección");
-      }
+      });
     });
 
-    app.get("/proyecciones/:rut", async (req, res) => {
-
-      try {
-  
+    app.get("/proyecciones/:rut", async (req, res) =>
+      executeWithErrorHandling(res, "Error al obtener las proyecciones", async () => {
         const respuesta = await planningService.listProjections(req.params.rut);
         return res.json(respuesta);
-
-      } catch (error) {
-        return handleError(res, error, "Error al obtener las proyecciones");
-
-      }
-    });
+      })
+    );
 
     app.delete("/proyecciones/:id", async (req, res) => {
-      const proyeccionId = Number.parseInt(req.params.id, 10);
-      if (Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-      }
+      const proyeccionId = parseNumericParam(req.params.id, "id de proyección");
 
-      try {
+      return executeWithErrorHandling(res, "Error al eliminar la proyección", async () => {
         const respuesta = await planningService.deleteProjection(proyeccionId);
         return res.json(respuesta);
 
-      } catch (error) {
-        return handleError(res, error, "Error al eliminar la proyección");
-
-      }
+      });
     });
 
     app.patch("/proyecciones/:id", async (req, res) => {
-      const proyeccionId = Number.parseInt(req.params.id, 10);
-      if (Number.isNaN(proyeccionId)) {
-        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-      }
+      const proyeccionId = parseNumericParam(req.params.id, "id de proyección");
 
       if (!req.body?.nombreVersion && typeof req.body?.isIdeal !== "boolean") {
         return res
@@ -169,24 +149,24 @@ async function main() {
           .json({ error: "Debe indicar un nuevo nombre de versión o el estado ideal de la proyección" });
       }
 
-      try {
+      return executeWithErrorHandling(res, "Error al actualizar la proyección", async () => {
         const respuesta = await planningService.updateProjection(proyeccionId, req.body);
         return res.json(respuesta);
-
-      } catch (error) {
-        return handleError(res, error, "Error al actualizar la proyección");
-
-      }
+      });
     });
 
     app.get("/proyecciones/compare", async (req, res) => {
       const { rut } = req.query as { rut?: string };
       if (!rut) return res.status(400).json({ error: "Debe indicar el rut a comparar" });
 
-      const baseId = req.query.baseId ? Number.parseInt(req.query.baseId as string, 10) : undefined;
-      const comparadaId = req.query.comparadaId ? Number.parseInt(req.query.comparadaId as string, 10) : undefined;
+      const baseId = req.query.baseId
+        ? parseNumericParam(req.query.baseId as string, "baseId")
+        : undefined;
+      const comparadaId = req.query.comparadaId
+        ? parseNumericParam(req.query.comparadaId as string, "comparadaId")
+        : undefined;
 
-      try {
+      return executeWithErrorHandling(res, "Error al comparar las proyecciones", async () => {
         const respuesta = await planningService.compareProjections({
           rut,
           baseId,
@@ -194,9 +174,7 @@ async function main() {
         });
 
         return res.json(respuesta);
-      } catch (error) {
-        return handleError(res, error, "Error al comparar las proyecciones");
-      }
+      });
     });
 
 

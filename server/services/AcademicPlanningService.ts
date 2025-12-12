@@ -2,7 +2,7 @@ import { Asignatura } from "../entidades/Asignatura";
 import { Estudiante } from "../entidades/Estudiante";
 import { Proyeccion } from "../entidades/Proyeccion";
 import { ProyeccionAsignatura } from "../entidades/Proyeccion_Asignatura";
-import { RepositoryFactory } from "../repositories/RepositoryFactory";
+import { RepositoryFactoryPort } from "../repositories/RepositoryFactory";
 import { HttpError } from "../errors/HttpError";
 import { AssignmentWithCourse } from "../types/AssignmentWithCourse";
 import { ApprovedCoursesParser, DefaultApprovedCoursesParser } from "./parsers/ApprovedCoursesParser";
@@ -38,7 +38,7 @@ export class AcademicPlanningService {
   private readonly prerequisiteValidator: PrerequisiteValidator;
 
   constructor(
-    private readonly repositoryFactory: RepositoryFactory,
+    private readonly repositoryFactory: RepositoryFactoryPort,
     approvedCoursesParser?: ApprovedCoursesParser,
     prerequisiteValidator?: PrerequisiteValidator
   ) {

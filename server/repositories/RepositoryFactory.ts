@@ -4,7 +4,14 @@ import { Estudiante } from "../entidades/Estudiante";
 import { Proyeccion } from "../entidades/Proyeccion";
 import { ProyeccionAsignatura } from "../entidades/Proyeccion_Asignatura";
 
-export class RepositoryFactory {
+export interface RepositoryFactoryPort {
+  createAsignaturaRepository(): Repository<Asignatura>;
+  createProyeccionRepository(): Repository<Proyeccion>;
+  createProyeccionAsignaturaRepository(): Repository<ProyeccionAsignatura>;
+  createEstudianteRepository(): Repository<Estudiante>;
+}
+
+export class RepositoryFactory implements RepositoryFactoryPort {
   constructor(private readonly dataSource: DataSource) {}
 
   createAsignaturaRepository(): Repository<Asignatura> {
