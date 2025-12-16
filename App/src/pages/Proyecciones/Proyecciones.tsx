@@ -188,9 +188,7 @@ const CourseCard: React.FC<{
       </div>
       <div className="flex flex-wrap gap-2 text-xs text-slate-600">
         <span className="rounded-full bg-slate-200 px-2 py-0.5 text-slate-700">Nivel {course.nivel}</span>
-        {course.prereq.length > 0 && (
-          <span className="rounded-full bg-indigo-200 px-2 py-0.5 text-indigo-800">Requiere: {course.prereq.join(", ")}</span>
-        )}
+        
         {!course.elegible && !course.asignado && (
           <span className="rounded-full bg-gray-300 px-2 py-0.5 text-gray-700">Bloqueado</span>
         )}
@@ -201,6 +199,7 @@ const CourseCard: React.FC<{
           {historialPeriodo ? ` · ${historialPeriodo}` : ""}
         </p>
       )}
+
       {course.asignado && (
         <div className="flex items-center justify-between gap-2 text-xs">
           <span className="font-medium">Semestre {course.asignado.semestre ?? "-"}</span>
@@ -217,13 +216,36 @@ const CourseCard: React.FC<{
           </select>
         </div>
       )}
+
+      {/* --- CÓDIGO NUEVO PARA LAS RESTRICCIONES --- */}
       {course.motivos.length > 0 && (
-        <ul className="space-y-1 text-xs text-red-700">
-          {course.motivos.map((motivo) => (
-            <li key={motivo}>⚠️ {motivo}</li>
-          ))}
-        </ul>
+        <div className="group relative mt-2">
+          {/* 1. El aviso pequeño visible siempre */}
+          <div className="inline-flex w-fit cursor-help items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 border border-red-100 transition-colors hover:bg-red-100">
+             <span className="text-[10px] font-bold uppercase tracking-wider text-red-800">
+               ⚠️ Restricciones ({course.motivos.length})
+             </span>
+          </div>
+
+          {/* 2. El Tooltip flotante (aparece al pasar el mouse) */}
+          <div className="absolute bottom-full left-0 z-30 mb-2 hidden w-[280px] rounded-lg border border-red-200 bg-white p-3 shadow-xl group-hover:block animate-in fade-in slide-in-from-bottom-2">
+             <p className="mb-2 text-xs font-bold text-red-900">Detalle del bloqueo:</p>
+             {/* Usamos max-h y overflow por si la lista es EXTREMADAMENTE larga */}
+             <ul className="max-h-64 overflow-y-auto space-y-1.5 px-1">
+              {course.motivos.map((motivo, idx) => (
+                <li key={idx} className="flex items-start gap-1.5 text-[11px] leading-snug text-red-700 break-words text-left">
+                  <span className="mt-0.5 text-red-400">•</span>
+                  {/* Limpiamos el emoji si ya viene en el texto */}
+                  <span>{motivo.replace('⚠️ ', '')}</span>
+                </li>
+              ))}
+            </ul>
+            {/* Un pequeño triángulo decorativo apuntando hacia abajo */}
+            <div className="absolute -bottom-[5px] left-4 h-2.5 w-2.5 rotate-45 border-b border-r border-red-200 bg-white"></div>
+          </div>
+        </div>
       )}
+      {/* ------------------------------------------ */}
     </div>
   );
 };
@@ -382,6 +404,11 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
   const [activeSemesterDrop, setActiveSemesterDrop] = useState<number | null>(null);
   const [removalActive, setRemovalActive] = useState(false);
 
+  const selectedIdRef = React.useRef<number | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = selectedProjection?.id ?? null;
+  }, [selectedProjection]);
+
   const showAlert = useCallback((type: AlertKind, text: string) => {
     setAlerts((prev) => [...prev, { id: Date.now(), type, text }]);
   }, []);
@@ -395,36 +422,60 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     return () => clearTimeout(timer);
   }, [alerts]);
 
+
+  // Reemplaza tu función fetchProjections actual con esta:
   const fetchProjections = useCallback(async () => {
     setLoadingProyecciones(true);
     try {
       const response = await fetchJson<ProyeccionesResponse>(`/proyecciones/${encodeURIComponent(data.rut)}`);
       setProjections(response.proyecciones);
+      
       const availableIds = response.proyecciones.map((p) => p.id);
-      if (selectedProjection && !availableIds.includes(selectedProjection.id)) {
+      const currentId = selectedIdRef.current; 
+
+      // --- CAMBIO CLAVE AQUÍ ---
+      // Si ya hay una ID seleccionada y es válida, NO HACEMOS NADA.
+      if (currentId && availableIds.includes(currentId)) {
+        setLoadingProyecciones(false);
+        return; 
+      }
+      
+      // Solo entramos aquí si NO hay nada seleccionado o la ID antigua fue borrada.
+      if (!currentId) {
+        if (response.proyecciones.length > 0) {
+           // --- CAMBIO 2: PREFERIR LA MÁS NUEVA ---
+           // Si no hay ideal, tomamos la última del array (la más reciente creada)
+           const lista = response.proyecciones;
+           const primera = lista.find((p) => p.isIdeal) ?? lista[lista.length - 1];
+           
+           setSelectedProjection({ id: primera.id, nombreVersion: primera.nombreVersion, isIdeal: primera.isIdeal });
+        }
+      } else if (!availableIds.includes(currentId)) {
+        // La versión que veíamos fue borrada
         const siguiente = response.proyecciones[0] ?? null;
         setSelectedProjection(
           siguiente ? { id: siguiente.id, nombreVersion: siguiente.nombreVersion, isIdeal: siguiente.isIdeal } : null
         );
-      } else if (response.proyecciones.length && !selectedProjection) {
-        const primera = response.proyecciones.find((p) => p.isIdeal) ?? response.proyecciones[0];
-        setSelectedProjection({ id: primera.id, nombreVersion: primera.nombreVersion, isIdeal: primera.isIdeal });
       }
+      
     } catch (error) {
       console.error(error);
       showAlert("error", (error as Error).message);
     } finally {
       setLoadingProyecciones(false);
     }
-  }, [data.rut, selectedProjection, showAlert]);
+  }, [data.rut, showAlert]);
 
   const fetchMalla = useCallback(
     async (projectionId?: number | null) => {
       const carrera = data.carreras?.[0];
       if (!data.rut || !carrera) return;
+      
       setLoadingMalla(true);
+ 
 
       try {
+        // ... (resto de tu código)
         const baseResponse = await fetch(
           `/api/malla/${encodeURIComponent(carrera.codigo)}/${encodeURIComponent(carrera.catalogo)}`
         );
@@ -482,9 +533,18 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           if (carrera.codigo) params.set("carrera", carrera.codigo);
           if (carrera.catalogo) params.set("catalogo", carrera.catalogo);
           if (aprobadasLista.length) params.set("aprobadas", aprobadasLista.join(","));
+          // ... dentro de fetchMalla ...
           const url = `/malla/${encodeURIComponent(data.rut)}${params.toString() ? `?${params.toString()}` : ""}`;
           projectionResponse = await fetchJson<MallaResponse>(url);
-          setSelectedProjection(projectionResponse.proyeccionSeleccionada);
+
+          // --- CAMBIO 1: SOLO ACTUALIZAR SI SE PIDIÓ UNA ID ---
+          // Si projectionId es undefined (carga inicial), ignoramos lo que sugiera el servidor
+          // para que sea fetchProjections quien decida cual mostrar.
+          if (projectionId && projectionResponse.proyeccionSeleccionada) {
+             setSelectedProjection(projectionResponse.proyeccionSeleccionada);
+          }
+          // -----------------------------------------------------
+          
         } catch (error) {
           console.error(error);
           showAlert("error", (error as Error).message);
@@ -577,6 +637,8 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     fetchMalla(selectedProjection?.id);
   }, [fetchMalla, selectedProjection?.id]);
 
+  
+
   const assignedBySemester = useMemo(() => {
     const map = new Map<number, AsignaturaMalla[]>();
     const totals = new Map<number, number>();
@@ -592,14 +654,44 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     return { map, totals };
   }, [courses]);
 
+  // En Proyecciones.tsx
+
+  // En Proyecciones.tsx
+
+  // En Proyecciones.tsx
+
   const unassignedByLevel = useMemo(() => {
+    // Helper local para extraer solo números (Ignora letras y guiones)
+    const getNum = (str: string) => str.replace(/[^0-9]/g, "");
+
+    // 1. Creamos una "Lista Negra" de números ocupados
+    const unavailableNumerics = new Set<string>();
+
+    courses.forEach((c) => {
+      // Si el ramo está asignado (proyectado) O ya está aprobado (historial)
+      if (c.asignado?.semestre || c.historialEstado === "cursado") {
+        unavailableNumerics.add(getNum(c.codigo));
+      }
+    });
+
     const grouped: Record<number, AsignaturaMalla[]> = {};
+    
     courses
-      .filter((course) => !course.asignado && course.historialEstado !== "cursado")
+      .filter((course) => {
+        const myNum = getNum(course.codigo);
+        
+        // FILTRO DEFINITIVO:
+        // Si el número de este curso ya está en la lista negra, LO ESCONDEMOS.
+        // Esto hace que SSED00102 esconda a DDOC00102, y DCCB-00141 esconda a DCCB00141.
+        const isAlreadyPresent = unavailableNumerics.has(myNum);
+
+        return !isAlreadyPresent;
+      })
       .forEach((course) => {
         if (!grouped[course.nivel]) grouped[course.nivel] = [];
         grouped[course.nivel].push(course);
       });
+      
     return grouped;
   }, [courses]);
 
@@ -618,6 +710,46 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     });
     return Array.from(codes);
   }, [courses]);
+
+  // En Proyecciones.tsx
+
+  // En Proyecciones.tsx
+
+  const handleAutoProjection = async () => {
+    if (!selectedProjection?.id) return;
+    const confirm = window.confirm("Esto reordenará todos los ramos futuros automáticamente. ¿Continuar?");
+    if (!confirm) return;
+
+    try {
+      setSaving(true);
+      // 1. Ejecutar la proyección en el servidor
+      await fetchJson(`/proyecciones/${selectedProjection.id}/auto`, {
+        method: "POST",
+        body: JSON.stringify({ 
+          rut: data.rut, 
+          aprobadas: approvedCourseCodes 
+        }),
+      });
+      
+      showAlert("success", "✨ Proyección automática generada");
+
+      // 2. TRUCO VISUAL: Limpiar el estado local momentáneamente
+      // Esto obliga a React a "olvidar" los datos viejos antes de traer los nuevos.
+      setCourses([]); 
+
+      // 3. Recargar los datos frescos del servidor
+      await Promise.all([
+          fetchMalla(selectedProjection.id), 
+          fetchProjections()
+      ]);
+      
+    } catch (error) {
+      console.error(error);
+      showAlert("error", (error as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleDropToSemester = async (codigo: string, semestre: number) => {
     if (!selectedProjection?.id) {
@@ -870,6 +1002,15 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           >
             Crear planificación
           </button>
+          {activeProjectionId && (
+            <button
+              className="rounded-full bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleAutoProjection}
+              disabled={saving}
+            >
+              Proyeccion automatica
+            </button>
+          )}
           {activeProjectionId && (
             <button
               className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
