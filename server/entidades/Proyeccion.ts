@@ -22,6 +22,12 @@ export class Proyeccion {
   @CreateDateColumn({ name: "fecha_creacion" })
   fechaCreacion!: Date;
 
+  @Column("varchar", {name: "nombre_version", default: "v1"})
+  nombreVersion!: string;
+
+  @Column("boolean", {name: "is_ideal", default: false})
+  isIdeal!: boolean;
+
   @OneToMany(
     () => ProyeccionAsignatura,
     (proyAsig) => proyAsig.proyeccion,

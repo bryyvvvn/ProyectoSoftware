@@ -32,6 +32,7 @@ const buildAvanceMetadata = (registros: Avance[]): AvanceMetadata => {
 };
 
 const Malla: React.FC<MallaPageProps> = ({ data }) => {
+  const [selectedCarrera, setSelectedCarrera] = useState<Carrera | null>(data.carreras?.[0] ?? null);
   const [cursos, setCursos] = useState<Curso[]>([]);
   const [avances, setAvances] = useState<Avance[]>([]);
   const [meta, setMeta] = useState<AvanceMetadata>();
@@ -39,16 +40,24 @@ const Malla: React.FC<MallaPageProps> = ({ data }) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setSelectedCarrera((prev) => {
+      if (!data.carreras?.length) return null;
+      const stillExists = prev && data.carreras.find((carrera) => carrera.codigo === prev.codigo && carrera.catalogo === prev.catalogo);
+      return stillExists ?? data.carreras[0];
+    });
+  }, [data.carreras]);
+
+  useEffect(() => {
     const fetchMalla = async () => {
       setLoading(true);
       try {
-        const carrera = data.carreras[0];
-        const resCursos = await fetch(`/api/malla/${carrera.codigo}/${carrera.catalogo}`);
+        if (!selectedCarrera) throw new Error("Sin carreras asociadas");
+        const resCursos = await fetch(`/api/malla/${selectedCarrera.codigo}/${selectedCarrera.catalogo}`);
         if (!resCursos.ok) throw new Error("Error cargando la malla");
         const cursosJson: Curso[] = await resCursos.json();
         setCursos(cursosJson);
 
-        const resAvance = await fetch(`/api/historial/${encodeURIComponent(data.rut)}/${encodeURIComponent(carrera.codigo)}`);
+        const resAvance = await fetch(`/api/historial/${encodeURIComponent(data.rut)}/${encodeURIComponent(selectedCarrera.codigo)}`);
         const avanceJson: Avance[] = await resAvance.json();
         setAvances(avanceJson);
         setMeta(buildAvanceMetadata(avanceJson));
@@ -60,21 +69,44 @@ const Malla: React.FC<MallaPageProps> = ({ data }) => {
     };
 
     fetchMalla();
-  }, [data]);
+  }, [data.rut, selectedCarrera]);
+
+  const maxNivel = useMemo(() => {
+    const niveles = cursos.map((curso) => Number(curso.nivel) || 0);
+    return niveles.length ? Math.max(...niveles) : 0;
+  }, [cursos]);
 
   if (loading) return <p className="text-center mt-10">Cargando malla curricular...</p>;
   if (error) return <p className="text-center mt-10 text-red-500 font-semibold">{error}</p>;
 
   return (
   <div>
-    <CareerBanner carrera={data.carreras[0].nombre} />
+    <CareerBanner carrera={selectedCarrera?.nombre ?? "Carrera sin nombre"} />
 
     {/* Espacio visual entre el banner y la malla */}
     <div className="mt-8"></div>
 
+    <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+      <span className="font-semibold text-slate-700">Carrera:</span>
+      {data.carreras.map((carrera) => {
+        const isActive = carrera.codigo === selectedCarrera?.codigo && carrera.catalogo === selectedCarrera.catalogo;
+        return (
+          <button
+            key={`${carrera.codigo}-${carrera.catalogo}`}
+            onClick={() => setSelectedCarrera(carrera)}
+            className={`rounded-full border px-3 py-1 font-semibold transition ${
+              isActive ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            {carrera.nombre}
+          </button>
+        );
+      })}
+    </div>
+
     <section className="mb-6">
       <div className="flex gap-2 overflow-x-auto pb-2 text-[13px]">
-        {Array.from({ length: 10 }, (_, i) => i + 1).map((nivel) => {
+        {Array.from({ length: Math.max(1, maxNivel || 1) }, (_, i) => i + 1).map((nivel) => {
           const items = cursos.filter(c => Number(c.nivel) === nivel);
           return (
             <SemesterColumn key={nivel} roman={toRoman(nivel)}>

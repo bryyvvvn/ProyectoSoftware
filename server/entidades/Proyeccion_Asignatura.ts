@@ -25,4 +25,7 @@ export class ProyeccionAsignatura {
 
   @Column("varchar", { default: "proyectado" })
   estado!: string;
+
+  @Column("int", { nullable: true })
+  semestre!: number | null;
 }
