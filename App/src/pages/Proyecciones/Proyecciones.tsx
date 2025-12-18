@@ -15,6 +15,32 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?
 
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
 
+const resolveLatestCareer = (carreras: Carrera[] = []) => {
+  if (!carreras.length) return null;
+
+  const toNumericCatalog = (catalogo: string) => {
+    const digits = catalogo?.match(/\d+/g)?.join("") ?? "";
+    const numeric = Number.parseInt(digits, 10);
+    return Number.isNaN(numeric) ? null : numeric;
+  };
+
+  return carreras.reduce<Carrera>((latest, current) => {
+    const latestValue = toNumericCatalog(latest.catalogo);
+    const currentValue = toNumericCatalog(current.catalogo);
+
+    if (latestValue === null && currentValue === null) {
+      return current;
+    }
+
+    if (latestValue === null) return current;
+    if (currentValue === null) return latest;
+
+    if (currentValue === latestValue) return current;
+    return currentValue > latestValue ? current : latest;
+  }, carreras[0]);
+};
+
+
 type EstadoAsignatura = "cursado" | "reprobado" | "proyectado";
 
 interface AsignacionInfo {
@@ -86,6 +112,15 @@ interface AlertState {
   text: string;
 }
 
+const normalizeEstadoAsignatura = (value: string | null | undefined): EstadoAsignatura | null => {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (["cursado", "aprobado"].includes(normalized)) return "cursado";
+  if (["reprobado", "reprobada"].includes(normalized)) return "reprobado";
+  if (["proyectado", "inscrito", "cursando", "en curso"].includes(normalized)) return "proyectado";
+  return null;
+};
+
 const estadoLabels: Record<EstadoAsignatura, string> = {
   cursado: "Aprobado",
   reprobado: "Reprobado",
@@ -145,7 +180,7 @@ const CourseCard: React.FC<{
   onDragStart?: (codigo: string) => void;
   onDragEnd?: () => void;
   onChangeEstado?: (estado: EstadoAsignatura) => void;
-}> = ({ course, draggable = true, onDragStart, onDragEnd, onChangeEstado }) => {
+}> = ({ course, draggable = true, onDragStart, onDragEnd}) => {
   const estadoActual = course.asignado?.estado ?? "proyectado";
   const historialEstado = course.historialEstado ?? null;
   const historialEtiqueta = course.historialEtiqueta ?? null;
@@ -153,10 +188,11 @@ const CourseCard: React.FC<{
   const blocked = !course.elegible && !course.asignado && !historialEstado;
   const isAssigned = Boolean(course.asignado);
   const isApproved = historialEstado === "cursado" && !isAssigned;
+  const assignedStyles = "border-blue-400 bg-blue-50 text-blue-900";
   const baseStyles = blocked
     ? "border-gray-400 bg-gray-200 text-gray-600"
     : isAssigned
-    ? estadoColorStyles[estadoActual]
+    ? assignedStyles
     : historialEstado
     ? estadoColorStyles[historialEstado]
     : "border-slate-300 bg-white text-slate-900";
@@ -203,17 +239,6 @@ const CourseCard: React.FC<{
       {course.asignado && (
         <div className="flex items-center justify-between gap-2 text-xs">
           <span className="font-medium">Semestre {course.asignado.semestre ?? "-"}</span>
-          <select
-            value={estadoActual}
-            onChange={(event) => onChangeEstado?.(event.target.value as EstadoAsignatura)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm"
-          >
-            {Object.entries(estadoLabels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
         </div>
       )}
 
@@ -260,7 +285,6 @@ const SemesterColumn: React.FC<{
   onDragLeave: () => void;
   onDragStart: (codigo: string) => void;
   onDragEnd: () => void;
-  onChangeEstado: (codigo: string, estado: EstadoAsignatura) => void;
 }> = ({
   semester,
   courses,
@@ -271,7 +295,6 @@ const SemesterColumn: React.FC<{
   onDragLeave,
   onDragStart,
   onDragEnd,
-  onChangeEstado,
 }) => (
   <div
     className={classNames(
@@ -310,7 +333,6 @@ const SemesterColumn: React.FC<{
               course={course}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
-              onChangeEstado={(estado) => onChangeEstado(course.codigo, estado)}
             />
           ))
       )}
@@ -403,6 +425,11 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
   const [draggingCourse, setDraggingCourse] = useState<string | null>(null);
   const [activeSemesterDrop, setActiveSemesterDrop] = useState<number | null>(null);
   const [removalActive, setRemovalActive] = useState(false);
+  const [selectedCareer, setSelectedCareer] = useState<Carrera | null>(resolveLatestCareer(data.carreras));
+
+  useEffect(() => {
+    setSelectedCareer(resolveLatestCareer(data.carreras));
+  }, [data.carreras]);
 
   const selectedIdRef = React.useRef<number | null>(null);
   useEffect(() => {
@@ -427,7 +454,13 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
   const fetchProjections = useCallback(async () => {
     setLoadingProyecciones(true);
     try {
-      const response = await fetchJson<ProyeccionesResponse>(`/proyecciones/${encodeURIComponent(data.rut)}`);
+      const params = new URLSearchParams();
+      if (selectedCareer?.codigo) params.set("carrera", selectedCareer.codigo);
+      if (selectedCareer?.catalogo) params.set("catalogo", selectedCareer.catalogo);
+
+      const response = await fetchJson<ProyeccionesResponse>(
+        `/proyecciones/${encodeURIComponent(data.rut)}${params.toString() ? `?${params.toString()}` : ""}`
+      );
       setProjections(response.proyecciones);
       
       const availableIds = response.proyecciones.map((p) => p.id);
@@ -464,11 +497,11 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     } finally {
       setLoadingProyecciones(false);
     }
-  }, [data.rut, showAlert]);
+  }, [data.rut, selectedCareer, showAlert]);
 
   const fetchMalla = useCallback(
     async (projectionId?: number | null) => {
-      const carrera = data.carreras?.[0];
+      const carrera = selectedCareer;
       if (!data.rut || !carrera) return;
       
       setLoadingMalla(true);
@@ -552,11 +585,16 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
 
         const projectionMap = new Map<string, AsignaturaMalla>();
         projectionResponse?.asignaturas.forEach((course) => {
+          const normalizedAssignedState = normalizeEstadoAsignatura(course.asignado?.estado);
+          const normalizedHistorialState = normalizeEstadoAsignatura(course.historialEstado);
           projectionMap.set(course.codigo, {
             ...course,
+            asignado: course.asignado
+              ? { ...course.asignado, estado: normalizedAssignedState ?? course.asignado.estado ?? "proyectado" }
+              : null,
             prereq: Array.isArray(course.prereq) ? course.prereq : [],
             motivos: Array.isArray(course.motivos) ? course.motivos : course.motivos ? [course.motivos] : [],
-            historialEstado: course.historialEstado ?? null,
+            historialEstado: normalizedHistorialState,
             historialEtiqueta: course.historialEtiqueta ?? null,
             historialPeriodo: course.historialPeriodo ?? null,
           });
@@ -571,6 +609,15 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
             projectionMap.delete(course.codigo);
             return {
               ...projectionInfo,
+              asignado: projectionInfo.asignado
+                ? {
+                    ...projectionInfo.asignado,
+                    estado:
+                      normalizeEstadoAsignatura(projectionInfo.asignado.estado) ??
+                      projectionInfo.asignado.estado ??
+                      "proyectado",
+                  }
+                : null,
               nombre: course.asignatura,
               creditos: course.creditos,
               nivel: Number(course.nivel),
@@ -580,7 +627,10 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
                 : projectionInfo.motivos
                 ? [projectionInfo.motivos]
                 : [],
-              historialEstado: historialInfo?.estado ?? projectionInfo.historialEstado ?? null,
+              historialEstado:
+                historialInfo?.estado ??
+                normalizeEstadoAsignatura(projectionInfo.historialEstado) ??
+                null,
               historialEtiqueta: historialInfo?.etiqueta ?? projectionInfo.historialEtiqueta ?? null,
               historialPeriodo: historialInfo?.periodo ?? projectionInfo.historialPeriodo ?? null,
             };
@@ -603,15 +653,21 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
 
         projectionMap.forEach((course, codigo) => {
           const base = baseMap.get(codigo);
+          if (!base) return;
           const historialInfo = historialMap.get(codigo.toUpperCase()) ?? null;
+          const normalizedAssignedState = normalizeEstadoAsignatura(course.asignado?.estado);
+          const normalizedHistorialState = normalizeEstadoAsignatura(course.historialEstado);
           combined.push({
             ...course,
+            asignado: course.asignado
+              ? { ...course.asignado, estado: normalizedAssignedState ?? course.asignado.estado ?? "proyectado" }
+              : null,
             prereq: Array.isArray(course.prereq) ? course.prereq : [],
             motivos: Array.isArray(course.motivos) ? course.motivos : course.motivos ? [course.motivos] : [],
             nombre: course.nombre ?? base?.asignatura ?? course.codigo,
             creditos: course.creditos ?? base?.creditos ?? 0,
             nivel: Number(course.nivel ?? base?.nivel ?? 0),
-            historialEstado: historialInfo?.estado ?? course.historialEstado ?? null,
+            historialEstado: historialInfo?.estado ?? normalizedHistorialState ?? null,
             historialEtiqueta: historialInfo?.etiqueta ?? course.historialEtiqueta ?? null,
             historialPeriodo: historialInfo?.periodo ?? course.historialPeriodo ?? null,
           });
@@ -626,8 +682,14 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
         setLoadingMalla(false);
       }
     },
-    [data.carreras, data.rut, showAlert]
+    [data.rut, selectedCareer, showAlert]
   );
+
+  useEffect(() => {
+    setSelectedProjection(null);
+    selectedIdRef.current = null;
+    setCourses([]);
+  }, [selectedCareer]);
 
   useEffect(() => {
     fetchProjections();
@@ -637,12 +699,20 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     fetchMalla(selectedProjection?.id);
   }, [fetchMalla, selectedProjection?.id]);
 
-  
+  const planningCourses = useMemo(
+    () =>
+      courses.filter(
+        (course) =>
+          normalizeEstadoAsignatura(course.historialEstado) !== "cursado" &&
+          normalizeEstadoAsignatura(course.asignado?.estado) !== "cursado"
+      ),
+    [courses]
+  );
 
   const assignedBySemester = useMemo(() => {
     const map = new Map<number, AsignaturaMalla[]>();
     const totals = new Map<number, number>();
-    courses
+    planningCourses
       .filter((course) => course.asignado?.semestre)
       .forEach((course) => {
         const semestre = course.asignado!.semestre!;
@@ -652,7 +722,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
         totals.set(semestre, (totals.get(semestre) ?? 0) + course.creditos);
       });
     return { map, totals };
-  }, [courses]);
+  }, [planningCourses]);
 
   // En Proyecciones.tsx
 
@@ -667,7 +737,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     // 1. Creamos una "Lista Negra" de números ocupados
     const unavailableNumerics = new Set<string>();
 
-    courses.forEach((c) => {
+    planningCourses.forEach((c) => {
       // Si el ramo está asignado (proyectado) O ya está aprobado (historial)
       if (c.asignado?.semestre || c.historialEstado === "cursado") {
         unavailableNumerics.add(getNum(c.codigo));
@@ -676,7 +746,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
 
     const grouped: Record<number, AsignaturaMalla[]> = {};
     
-    courses
+    planningCourses
       .filter((course) => {
         const myNum = getNum(course.codigo);
         
@@ -693,18 +763,21 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       });
       
     return grouped;
-  }, [courses]);
+  }, [planningCourses]);
 
   const maxSemester = useMemo(() => {
     const semestres = Array.from(assignedBySemester.map.keys());
-    if (!semestres.length) return 8;
-    return Math.max(8, ...semestres);
-  }, [assignedBySemester.map]);
+    const niveles = planningCourses.map((course) => Number(course.nivel) || 0);
+    const maxDetected = Math.max(0, ...semestres, ...(niveles.length ? niveles : [0]));
+    return Math.max(1, maxDetected);
+  }, [assignedBySemester.map, planningCourses]);
 
   const approvedCourseCodes = useMemo(() => {
     const codes = new Set<string>();
     courses.forEach((course) => {
-      if (course.historialEstado === "cursado" || course.asignado?.estado === "cursado") {
+      const historialEstado = normalizeEstadoAsignatura(course.historialEstado);
+      const asignadoEstado = normalizeEstadoAsignatura(course.asignado?.estado);
+      if (historialEstado === "cursado" || asignadoEstado === "cursado") {
         codes.add(course.codigo.toUpperCase());
       }
     });
@@ -774,7 +847,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           body: JSON.stringify({ semestre, aprobadas: approvedCourseCodes }),
         });
       } else {
-        const carreraPrincipal = data.carreras?.[0];
+        const carreraPrincipal = selectedCareer;
         const payload = {
           codigo,
           semestre,
@@ -821,25 +894,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       setSaving(false);
       setDraggingCourse(null);
       setRemovalActive(false);
-    }
-  };
-
-  const handleEstadoChange = async (codigo: string, estado: EstadoAsignatura) => {
-    if (!selectedProjection?.id) return;
-    try {
-      setSaving(true);
-      await fetchJson(`/proyecciones/${selectedProjection.id}/asignaturas/${encodeURIComponent(codigo)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ estado, aprobadas: approvedCourseCodes }),
-      });
-      showAlert("success", "Estado actualizado");
-      await Promise.all([fetchMalla(selectedProjection.id), fetchProjections()]);
-    } catch (error) {
-      console.error(error);
-      showAlert("error", (error as Error).message);
-    } finally {
-      setSaving(false);
-      setDraggingCourse(null);
     }
   };
 
@@ -979,6 +1033,19 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-semibold text-slate-700">Carrera actual:</span>
+        {selectedCareer ? (
+          <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-semibold text-blue-800">
+            {selectedCareer.nombre}
+            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-blue-600">
+              Catálogo {selectedCareer.catalogo}
+            </span>
+          </span>
+        ) : (
+          <span className="text-slate-500">Sin carrera disponible</span>
+        )}
+      </div>
       <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 p-6 shadow">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Planificación académica</h1>
@@ -1074,7 +1141,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
                   setActiveSemesterDrop(null);
                   setRemovalActive(false);
                 }}
-                onChangeEstado={handleEstadoChange}
               />
             ))}
           </div>
@@ -1092,7 +1158,9 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
         <aside className="space-y-6">
           <CoursesPool
             groupedCourses={unassignedByLevel}
-            activeLevel={draggingCourse ? courses.find((course) => course.codigo === draggingCourse)?.nivel ?? null : null}
+            activeLevel={
+              draggingCourse ? planningCourses.find((course) => course.codigo === draggingCourse)?.nivel ?? null : null
+            }
             onDragStart={(codigo) => {
               setDraggingCourse(codigo);
             }}
