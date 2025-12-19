@@ -64,25 +64,21 @@ async function main() {
     });
 
     app.post("/proyecciones/:id/asignaturas", async (req, res) => {
-  const proyeccionId = Number.parseInt(req.params.id, 10);
+      const proyeccionId = Number.parseInt(req.params.id, 10);
 
-  if (Number.isNaN(proyeccionId)) {
-    return res.status(400).json({ error: "El id de proyección debe ser numérico" });
-  }
+      if (Number.isNaN(proyeccionId)) {
+        return res.status(400).json({ error: "El id de proyección debe ser numérico" });
+      }
 
-  // --- AGREGA ESTA LÍNEA AQUÍ ---
-  // Estaba faltando leer las asignaturas aprobadas del body para validarlas
-  const approvedCourses = planningService.parseApprovedCodes(req.body?.aprobadas);
-  // ------------------------------
+      const approvedCourses = planningService.parseApprovedCodes(req.body?.aprobadas);
 
-  try {
-    // Ahora la función ya tiene la variable approvedCourses definida correctamente
-    const respuesta = await planningService.addCourseToProjection(proyeccionId, req.body, approvedCourses);
-    return res.status(201).json(respuesta);
-  } catch (error) {
-    return handleError(res, error, "Error al guardar la asignatura en la proyección");
-  }
-});
+      try {
+        const respuesta = await planningService.addCourseToProjection(proyeccionId, req.body, approvedCourses);
+        return res.status(201).json(respuesta);
+      } catch (error) {
+        return handleError(res, error, "Error al guardar la asignatura en la proyección");
+      }
+    });
 
     app.patch("/proyecciones/:id/asignaturas/:codigo", async (req, res) => {
       const proyeccionId = Number.parseInt(req.params.id, 10);
@@ -204,22 +200,20 @@ async function main() {
       }
     });
 
-    // En server.ts, agrega este bloque junto a los otros endpoints POST
-
-    // En server.ts
-
     app.post("/proyecciones/:id/auto", async (req, res) => {
       const proyeccionId = Number.parseInt(req.params.id, 10);
       if (Number.isNaN(proyeccionId)) {
         return res.status(400).json({ error: "El id de proyección debe ser numérico" });
       }
 
-      // 1. Leemos las aprobadas del body
       const approvedCourses = planningService.parseApprovedCodes(req.body?.aprobadas);
+      
+      // OPTIMIZACIÓN: Recibimos el catálogo del body
+      const catalogo = req.body?.catalogo;
 
       try {
-        // 2. Se las pasamos al servicio
-        const respuesta = await planningService.generateAutoProjection(proyeccionId, req.body?.rut, approvedCourses);
+        // Pasamos el catálogo al servicio para que filtre
+        const respuesta = await planningService.generateAutoProjection(proyeccionId, req.body?.rut, approvedCourses, catalogo);
         return res.status(200).json(respuesta);
       } catch (error) {
         return handleError(res, error, "Error al generar proyección automática");

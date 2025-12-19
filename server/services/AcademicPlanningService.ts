@@ -35,6 +35,55 @@ export class AcademicPlanningService {
 
   constructor(private readonly repositoryFactory: RepositoryFactory) {}
 
+  // --- MÉTODO AGREGADO QUE FALTABA ---
+  async createProjection(rut: string, nombreVersion?: string) {
+    if (!rut) throw new HttpError(400, "El RUT es obligatorio");
+
+    const estudiante = await this.estudianteRepo.findOne({ where: { rut } });
+    if (!estudiante) throw new HttpError(404, "Estudiante no encontrado");
+
+    const nombrePropuesto = nombreVersion?.trim();
+    let nombreFinal = nombrePropuesto;
+
+    if (!nombreFinal) {
+      const cantidad = await this.proyeccionRepo.count({ where: { estudiante: { rut } } });
+      nombreFinal = `Versión ${cantidad + 1}`;
+    }
+
+    // Verificar si el nombre ya existe
+    const existente = await this.proyeccionRepo.findOne({
+      where: { estudiante: { rut }, nombreVersion: nombreFinal },
+    });
+
+    if (existente) {
+      // Si ya existe y fue generado automáticamente, le agregamos un timestamp
+      if (!nombrePropuesto) {
+        nombreFinal = `${nombreFinal} (${Date.now()})`;
+      } else {
+        throw new HttpError(409, "Ya existe una versión con ese nombre");
+      }
+    }
+
+    const nuevaProyeccion = this.proyeccionRepo.create({
+      estudiante,
+      nombreVersion: nombreFinal,
+      isIdeal: false,
+      fechaCreacion: new Date(),
+    });
+
+    await this.proyeccionRepo.save(nuevaProyeccion);
+
+    return {
+      message: "Proyección creada exitosamente",
+      proyeccion: {
+        id: nuevaProyeccion.id,
+        nombreVersion: nuevaProyeccion.nombreVersion,
+        isIdeal: nuevaProyeccion.isIdeal,
+      },
+    };
+  }
+  // ----------------------------------
+
   async ensureEstudiantesFromLoginPayload(payload: any): Promise<void> {
     if (!payload || typeof payload !== "object") return;
 
@@ -152,13 +201,9 @@ export class AcademicPlanningService {
   }): Promise<CurriculumResult> {
     const { rut, proyeccionId, carreraCodigo, catalogo, approvedCourses } = params;
 
-    if (carreraCodigo && catalogo) {
-      await this.syncAsignaturasDesdeMalla(carreraCodigo, catalogo).catch((error) =>
-        console.error("No se pudo actualizar la malla antes de obtener la proyección:", error)
-      );
-    }
-
-    const asignaturas = await this.asignaturaRepo.find();
+    const asignaturas = catalogo 
+      ? await this.asignaturaRepo.find({ where: { catalogo } }) 
+      : await this.asignaturaRepo.find();
 
     let proyeccion: Proyeccion | null = null;
     if (proyeccionId) {
@@ -185,6 +230,7 @@ export class AcademicPlanningService {
 
     const resultado = asignaturas.map((curso) => {
       const asignacion = assignments.find((a) => a.asignatura.codigo === curso.codigo);
+      
       const motivos: string[] = [];
       let elegible = true;
 
@@ -241,50 +287,6 @@ export class AcademicPlanningService {
           }
         : null,
       asignaturas: resultado,
-    };
-  }
-
-  async createProjection(rut: string, nombreVersion?: string) {
-    const rutEstudiante = this.sanitizeString(rut);
-    if (!rutEstudiante) {
-      throw new HttpError(400, "Debe indicar el RUT del estudiante");
-    }
-
-    const estudiante = await this.estudianteRepo.findOne({ where: { rut: rutEstudiante } });
-    if (!estudiante) {
-      throw new HttpError(404, "Estudiante no encontrado");
-    }
-
-    const nombrePropuesto = nombreVersion?.trim();
-    const cantidadExistente = await this.proyeccionRepo.count({
-      where: { estudiante: { rut: rutEstudiante } },
-    });
-
-    let nombreFinal = nombrePropuesto && nombrePropuesto.length ? nombrePropuesto : `v${cantidadExistente + 1}`;
-
-    const nombreDuplicado = await this.proyeccionRepo.findOne({
-      where: { estudiante: { rut: rutEstudiante }, nombreVersion: nombreFinal },
-    });
-
-    if (nombreDuplicado) {
-      throw new HttpError(409, "Ya existe una versión con ese nombre");
-    }
-
-    const nuevaProyeccion = this.proyeccionRepo.create({
-      estudiante,
-      nombreVersion: nombreFinal,
-      isIdeal: false,
-    });
-
-    await this.proyeccionRepo.save(nuevaProyeccion);
-
-    return {
-      message: "Proyección creada correctamente",
-      proyeccion: {
-        id: nuevaProyeccion.id,
-        nombreVersion: nuevaProyeccion.nombreVersion,
-        isIdeal: nuevaProyeccion.isIdeal,
-      },
     };
   }
 
@@ -728,6 +730,9 @@ export class AcademicPlanningService {
     const data = await response.json();
     const cursos = Array.isArray(data) ? data : data.malla || data.data || [];
     const lista = Array.isArray(cursos) ? cursos : [];
+    
+    // Ejecutamos la sincronización en segundo plano (sin await bloqueante) o la optimizamos
+    // Aquí la dejaremos con await pero optimizada internamente
     await this.syncAsignaturasDesdeMalla(codigo, catalogo, lista).catch((error) =>
       console.error("No se pudo sincronizar la malla curricular durante la carga inicial:", error)
     );
@@ -751,18 +756,10 @@ export class AcademicPlanningService {
     return value.trim();
   }
 
-  // En AcademicPlanningService.ts
-
-  // En AcademicPlanningService.ts (Parte inferior)
-
   private normalizeCodigo(value: string) {
-    // VOLVEMOS A LA NORMALIDAD: Acepta letras y números, solo quita guiones y espacios.
-    // Así "DCCB-00141" se guarda como "DCCB00141" (Correcto).
     return this.sanitizeString(value).replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
   }
 
-  // --- NUEVO MÉTODO AUXILIAR ---
-  // Usaremos este SOLO para comparar si un requisito se cumple (SSED vs DDOC)
   private extractNumericCode(value: string) {
     return this.sanitizeString(value).replace(/[^0-9]/g, "");
   }
@@ -832,8 +829,6 @@ export class AcademicPlanningService {
     return Array.from(new Set(collected));
   }
 
-  // En AcademicPlanningService.ts
-
   private async syncAsignaturasDesdeMalla(
     codCarrera: string,
     catalogo: string,
@@ -845,7 +840,7 @@ export class AcademicPlanningService {
 
     let cursosLista: unknown[] = Array.isArray(cursos) ? cursos : [];
 
-    // Si no vienen cursos, intentamos bajarlos de la API externa
+    // Si no vienen cursos, intentamos bajarlos
     if (!cursosLista.length) {
       try {
         const queryParam = `${carreraCodigo}-${catalogoCodigo}`;
@@ -860,12 +855,17 @@ export class AcademicPlanningService {
       }
     }
 
-    // 1. Obtener TODAS las asignaturas existentes en la DB para comparar inteligentemente
-    const allExisting = await this.asignaturaRepo.find();
+    cursosLista = cursosLista.filter((curso: any) => {
+        const codigo = curso.codigo || curso.CODIGO || curso.codAsignatura || "";
+        return codigo.includes("-");
+    });
+
+    // 1. CARGA OPTIMIZADA: Solo cargamos los ramos de ESTE catálogo
+    // Esto reduce la carga de miles de filas a unas pocas docenas.
+    const relevantExisting = await this.asignaturaRepo.find({ where: { catalogo: catalogoCodigo } });
     const existingMap = new Map<string, Asignatura>();
     
-    // Las guardamos indexadas por su NÚMERO (ej: "00141" -> Objeto Asignatura)
-    allExisting.forEach(a => {
+    relevantExisting.forEach(a => {
         const num = this.extractNumericCode(a.codigo);
         if (num) existingMap.set(num, a);
     });
@@ -875,23 +875,17 @@ export class AcademicPlanningService {
         if (!raw || typeof raw !== "object") return null;
         const objeto = raw as Record<string, unknown>;
         
-        // Obtenemos el código crudo y lo normalizamos manteniendo letras y guiones
         let codigoRaw = this.extractFirstNonEmpty(
               objeto.codigo, objeto.CODIGO, objeto.codAsignatura, objeto.cod_asignatura, objeto.cod, objeto.sigla
         );
         let codigo = this.normalizeCodigo(codigoRaw);
         
-        // --- MAGIA ANTI-DUPLICADOS ---
-        // Si el código que viene es "00141" o "DCCB00141", pero en la base ya tenemos "DCCB-00141",
-        // forzamos a usar el de la base para no crear uno nuevo.
+        // Magia Anti-Duplicados (Reutiliza si ya existe en este catálogo)
         const numKey = this.extractNumericCode(codigo);
         const existing = existingMap.get(numKey);
-        
         if (existing) {
-            // Si ya existe uno con esos números, USAMOS EL CÓDIGO EXISTENTE (el bonito)
             codigo = existing.codigo;
         }
-        // -----------------------------
 
         const nombre = this.extractFirstNonEmpty(
             objeto.asignatura, objeto.nombre, objeto.nombre_asignatura, objeto.descripcion, objeto.title
@@ -899,7 +893,6 @@ export class AcademicPlanningService {
         const creditos = Number.parseInt(String(objeto.creditos ?? objeto.credito ?? objeto.credits ?? 0), 10);
         const nivel = Number.parseInt(String(objeto.nivel ?? objeto.level ?? objeto.semestre ?? 0), 10);
         
-        // Limpiamos prerrequisitos también
         const prereq = this.extractPrerequisiteCodes(objeto)
             .map((code) => {
                 const pNum = this.extractNumericCode(code);
@@ -923,13 +916,11 @@ export class AcademicPlanningService {
       })
       .filter((item): item is { codigo: string; nombre: string; creditos: number; nivel: number; prereq: string[]; catalogo: string } => item !== null);
 
-    // Guardado en Base de Datos
-    for (const curso of cursosNormalizados) {
-      // Buscamos directo por el código que decidimos usar (que ya debería estar alineado con la DB)
-      const existente = await this.asignaturaRepo.findOne({ where: { codigo: curso.codigo } });
+    // 2. GUARDADO PARALELO: Usamos Promise.all para no bloquear el hilo
+    const operations = cursosNormalizados.map(async (curso) => {
+      const existente = existingMap.get(this.extractNumericCode(curso.codigo));
       
       if (!existente) {
-        // Solo creamos si REALMENTE no existe (ni el bonito ni el feo, gracias a la lógica de arriba)
         const nuevo = this.asignaturaRepo.create({
           codigo: curso.codigo,
           nombre: curso.nombre,
@@ -939,14 +930,12 @@ export class AcademicPlanningService {
           catalogo: curso.catalogo,
         });
         await this.asignaturaRepo.save(nuevo);
-        
-        // Lo agregamos al mapa local por si aparece de nuevo en este mismo loop
-        const num = this.extractNumericCode(nuevo.codigo);
-        existingMap.set(num, nuevo);
-        continue;
+        // Actualizamos mapa local
+        existingMap.set(this.extractNumericCode(nuevo.codigo), nuevo);
+        return;
       }
 
-      // Actualizamos datos si cambiaron
+      // Actualizar si cambió algo
       const updates: Partial<Asignatura> = {};
       if (existente.nombre !== curso.nombre) updates.nombre = curso.nombre;
       if (existente.creditos !== curso.creditos) updates.creditos = curso.creditos;
@@ -965,7 +954,9 @@ export class AcademicPlanningService {
       if (Object.keys(updates).length) {
         await this.asignaturaRepo.update(existente.codigo, updates);
       }
-    }
+    });
+
+    await Promise.all(operations);
 
     return cursosLista;
   }
@@ -989,10 +980,6 @@ export class AcademicPlanningService {
       .reduce((sum, assignment) => sum + assignment.asignatura.creditos, 0);
   }
 
-  // En AcademicPlanningService.ts
-
-  // En AcademicPlanningService.ts
-
   private validatePrerequisites(
     targetCourse: Asignatura,
     assignments: AssignmentWithCourse[],
@@ -1009,19 +996,16 @@ export class AcademicPlanningService {
     const timingErrors: string[] = [];
 
     for (const code of prereqs) {
-      const normalizedCode = this.normalizeCodigo(code); // Ej: DDOC00102
-      const numericCode = this.extractNumericCode(code); // Ej: 00102 (El secreto)
+      const normalizedCode = this.normalizeCodigo(code); 
+      const numericCode = this.extractNumericCode(code); 
 
       if (!normalizedCode) continue;
       
-      // 1. Revisar Aprobados (Comparando números para que SSED = DDOC)
-      // Convertimos el Set de aprobados a un array y buscamos si alguno termina en el mismo número
       const isApproved = Array.from(approvedCourses || []).some(approved => 
           this.extractNumericCode(approved) === numericCode && numericCode.length > 2
       );
       if (isApproved) continue;
 
-      // 2. Revisar Proyectados (Comparando números)
       const found = assignments.find((assignment) => {
         if (!assignment.asignatura) return false;
         return this.extractNumericCode(assignment.asignatura.codigo) === numericCode;
@@ -1045,7 +1029,6 @@ export class AcademicPlanningService {
       }
     }
 
-    // Lógica visual relajada (igual que antes)
     if (targetSemester !== undefined && targetSemester !== null) {
        if (timingErrors.length > 0) {
           return { ok: false, message: `Error de orden: ${timingErrors.join(", ")}` };
@@ -1078,28 +1061,17 @@ export class AcademicPlanningService {
     return { totalCreditos, cantidadSemestres, creditosPorSemestre };
   }
 
-  // En AcademicPlanningService.ts, agrega este método dentro de la clase:
-
-  // En AcademicPlanningService.ts - Reemplaza el método generateAutoProjection por este:
-
-  // En AcademicPlanningService.ts
-
-  // En AcademicPlanningService.ts
-
-  // En AcademicPlanningService.ts
-
-  // En AcademicPlanningService.ts - Reemplaza generateAutoProjection
-
-  async generateAutoProjection(proyeccionId: number, rut: string, externalApproved: Set<string> = new Set()) {
+  async generateAutoProjection(proyeccionId: number, rut: string, externalApproved: Set<string> = new Set(), catalogo?: string) {
     const proyeccion = await this.findProjectionById(proyeccionId);
     if (!proyeccion) throw new HttpError(404, "Proyección no encontrada");
 
-    const asignaturas = await this.asignaturaRepo.find();
+    const asignaturas = catalogo 
+        ? await this.asignaturaRepo.find({ where: { catalogo } })
+        : await this.asignaturaRepo.find();
+
     const currentAssignments = this.getAssignmentsWithCourse(proyeccion);
     
-    // 1. CONSOLIDAR APROBADOS (Usamos Set de Números para ignorar SSED/DDOC)
     const approvedNumerics = new Set<string>();
-    
     externalApproved.forEach(code => approvedNumerics.add(this.extractNumericCode(code)));
     
     for (const assignment of currentAssignments) {
@@ -1108,31 +1080,24 @@ export class AcademicPlanningService {
       }
     }
 
-    // 2. LIMPIEZA
     const assignmentsToRemove = currentAssignments.filter(a => a.estado !== "cursado");
     if (assignmentsToRemove.length > 0) {
       await this.proyeccionAsignaturaRepo.remove(assignmentsToRemove);
     }
 
-    // 3. PREPARACIÓN
-    // Filtramos duplicados en la DB (quedándonos con el código más largo/completo)
     const uniqueAsignaturasMap = new Map<string, Asignatura>();
     asignaturas.forEach(asig => {
         const num = this.extractNumericCode(asig.codigo);
         if (!num) return;
-        
-        // Si ya existe uno con ese número, preferimos el que tenga letras (DCCB...) sobre el numérico puro
         const existing = uniqueAsignaturasMap.get(num);
-        if (!existing || (asig.codigo.length > existing.codigo.length)) {
+        if (!existing || (asig.codigo.includes("-") && !existing.codigo.includes("-"))) {
             uniqueAsignaturasMap.set(num, asig);
         }
     });
 
-    // Pendientes: Los que su número NO está en approvedNumerics
     let pendingCourses = Array.from(uniqueAsignaturasMap.values())
         .filter(c => !approvedNumerics.has(this.extractNumericCode(c.codigo)));
 
-    // Planned: Iniciamos con lo aprobado
     const plannedNumerics = new Set(approvedNumerics);
     
     const maxSemestreCursado = currentAssignments
@@ -1154,7 +1119,6 @@ export class AcademicPlanningService {
       let currentCredits = 0;
       const semesterSelection: Asignatura[] = [];
 
-      // FASE 1: Candidatos
       let candidates = pendingCourses.filter(curso => {
         const prereqs = Array.isArray(curso.prereq) ? curso.prereq : [];
         return prereqs.every(req => plannedNumerics.has(this.extractNumericCode(req)));
@@ -1176,7 +1140,6 @@ export class AcademicPlanningService {
         }
       }
 
-      // FASE 2: Rescate (Huecos)
       if (currentCredits < MAX_CREDITS) {
          const orphans = pendingCourses.filter(c => 
             !plannedNumerics.has(this.extractNumericCode(c.codigo)) && 
@@ -1194,14 +1157,20 @@ export class AcademicPlanningService {
          }
       }
 
-      // FASE 3: Desbloqueo
       if (semesterSelection.length === 0 && pendingCourses.length > 0) {
          pendingCourses.sort((a, b) => a.nivel - b.nivel);
-         // Buscamos uno no planeado
-         const forced = pendingCourses.find(c => !plannedNumerics.has(this.extractNumericCode(c.codigo)));
-         if (forced) {
-             semesterSelection.push(forced);
-             plannedNumerics.add(this.extractNumericCode(forced.codigo));
+         const lowestLevel = pendingCourses[0].nivel;
+         const forcedGroup = pendingCourses.filter(c => c.nivel === lowestLevel);
+
+         for (const forced of forcedGroup) {
+             const cNum = this.extractNumericCode(forced.codigo);
+             if (plannedNumerics.has(cNum)) continue;
+
+             if (currentCredits + forced.creditos <= MAX_CREDITS) {
+                 semesterSelection.push(forced);
+                 currentCredits += forced.creditos;
+                 plannedNumerics.add(cNum);
+             }
          }
       }
 

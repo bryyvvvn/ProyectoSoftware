@@ -81,12 +81,12 @@ const Malla: React.FC<MallaPageProps> = ({ data }) => {
 
   return (
   <div>
-    <CareerBanner carrera={selectedCarrera?.nombre ?? "Carrera sin nombre"} />
+   
 
     {/* Espacio visual entre el banner y la malla */}
     <div className="mt-8"></div>
 
-    <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+    <div className="mb-4 flex flex-wrap items-center gap-2 text-l">
       <span className="font-semibold text-slate-700">Carrera:</span>
       {data.carreras.map((carrera) => {
         const isActive = carrera.codigo === selectedCarrera?.codigo && carrera.catalogo === selectedCarrera.catalogo;

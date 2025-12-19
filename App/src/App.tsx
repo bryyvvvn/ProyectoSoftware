@@ -6,6 +6,8 @@ import Login from "./pages/Login/Login";
 import Malla from "./pages/AvanceCurricular/Malla";
 import Historial from "./pages/HistorialAcademico/Historial";
 import Proyecciones from "./pages/Proyecciones/Proyecciones";
+// IMPORTANTE: Verifica que esta ruta exista. Si tu archivo está en "pages/Perfil.tsx", borra "/Perfil" del final.
+import Perfil from "./pages/Perfil/Perfil"; 
 
 // Componentes de layout
 import { Sidebar } from "./componentes/layout/Sidebar";
@@ -64,7 +66,12 @@ const App: React.FC = () => {
                     <Route path="/malla" element={<Malla data={userData} />} />
                     <Route path="/historial" element={<Historial data={userData} />} />
                     <Route path="/proyecciones" element={<Proyecciones data={userData} />} />
-                    {/*es una ruta default, por si ponen rutas que no existan*/}
+                    
+                    {/* AQUÍ ESTÁ LA RUTA DEL PERFIL */}
+                    {/* Si no pones esto, al hacer click en el Sidebar te redirigirá a la malla */}
+                    <Route path="/perfil" element={<Perfil data={userData} />} />
+
+                    {/* Ruta por defecto para cualquier URL desconocida */}
                     <Route path="*" element={<Navigate to="/malla" replace />} />
                   </Routes>
                 </main>

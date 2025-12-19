@@ -1,120 +1,148 @@
 import React, { useState, ChangeEvent, FormEvent } from "react";
 
-// Interfaz para definir la estructura de los datos del formulario
 interface LoginFormData {
-    username: string;
-    password: string;
+  username: string;
+  password: string;
 }
 
-// Interfaz para definir las props del componente
 interface LoginProps {
-    onSucces: (data: any) => void;
+  onSucces: (data: any) => void;
 }
 
 export default function Form({ onSucces }: LoginProps) {
-    // Estado para almacenar los datos del formulario (usuario y contraseña)
-    const [form, setForm] = useState<LoginFormData>({ username: "", password: "" });
-    // Estado para almacenar el mensaje de resultado (éxito o error)
-    const [result, setResult] = useState<string>("");
+  const [form, setForm] = useState<LoginFormData>({ username: "", password: "" });
+  const [result, setResult] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-    // Manejador para actualizar el estado del formulario cuando el usuario escribe
-    const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setForm((prev) => ({ ...prev, [name]: value }));
-    };
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
 
-    // Manejador para enviar el formulario
-    const handleSubmit = async (e: FormEvent) => {
-        e.preventDefault();
-        setResult(""); // Limpiar el resultado anterior
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setResult("");
+    setIsLoading(true);
 
-        try {
-            // Petición POST al endpoint de login
-            const response = await fetch("http://localhost:3000/api/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(form),
-            });
+    try {
+      const response = await fetch("http://localhost:3000/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
 
-            const data = await response.json();
-            console.log("Respuesta del servidor:", data);
+      const data = await response.json();
 
-            if (response.ok) {
-                // Si la respuesta es exitosa, llama a la función onSucces
-                onSucces(data); // data incluye el token o info del usuario
-            } else {
-                // Si hay un error, muestra el mensaje de error
-                setResult(data.error || "Credenciales inválidas");
-            }
-        } catch (err) {
-            console.error(err);
-            setResult("Error en la solicitud");
-        }
-    };
+      if (response.ok) {
+        onSucces(data);
+      } else {
+        setResult(data.error || "Credenciales inválidas");
+      }
+    } catch (err) {
+      console.error(err);
+      setResult("Error de conexión con el servidor");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    return (
-        // Contenedor principal que centra el formulario en la pantalla
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 dark">
-            <div className="w-full max-w-md bg-gray-800 rounded-lg shadow-md p-6">
-                <h2 className="text-2xl font-bold text-gray-200 mb-4">Iniciar Sesión</h2>
-
-                <form className="flex flex-col" onSubmit={handleSubmit}>
-                    {/* Campo de entrada para el email/usuario */}
-                    <input
-                        placeholder="Correo electrónico"
-                        className="bg-gray-700 text-gray-200 border-0 rounded-md p-2 mb-4 focus:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition ease-in-out duration-150"
-                        type="email"
-                        name="username"
-                        value={form.username}
-                        onChange={handleChange}
-                        required
-                    />
-
-                    {/* Campo de entrada para la contraseña */}
-                    <input
-                        placeholder="Contraseña"
-                        className="bg-gray-700 text-gray-200 border-0 rounded-md p-2 mb-4 focus:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition ease-in-out duration-150"
-                        type="password"
-                        name="password"
-                        value={form.password}
-                        onChange={handleChange}
-                        required
-                    />
-
-                    <div className="flex items-center justify-between flex-wrap">
-                        {/* Checkbox "Remember me" (sin funcionalidad por ahora) */}
-                        <label className="text-sm text-gray-200 cursor-pointer" htmlFor="remember-me">
-                            <input className="mr-2" id="remember-me" type="checkbox" />
-                            Recuérdame
-                        </label>
-
-                        {/* Enlace para recuperar contraseña */}
-                        <a className="text-sm text-blue-500 hover:underline mb-0.5" href="#">¿Olvidaste tu contraseña?</a>
-                    </div>
-
-                    {/* Botón para enviar el formulario */}
-                    <button
-                        className="bg-gradient-to-r from-indigo-500 to-blue-500 text-white font-bold py-2 px-4 rounded-md mt-4 hover:bg-indigo-600 hover:to-blue-600 transition ease-in-out duration-150"
-                        type="submit"
-                    >
-                        Iniciar Sesión
-                    </button>
-
-                    {/* Muestra el mensaje de error si existe */}
-                    {result && (
-                        <p className="text-red-400 text-center mt-4 text-sm">
-                            {result}
-                        </p>
-                    )}
-                </form>
-
-                {/* Enlace para registrarse */}
-                <p className="text-gray-200 mt-4 text-center text-sm">
-                    ¿No tienes una cuenta? <a className="text-sm text-blue-500 hover:underline" href="#">Regístrate</a>
-                </p>
-            </div>
+  return (
+    // 1. FONDO BLANCO GENERAL
+    <div className="flex min-h-screen items-center justify-center bg-gray-300 px-4">
+      
+      {/* 2. TARJETA CON EL AZUL INSTITUCIONAL (#0e3a53) */}
+      <div 
+        className="relative w-full max-w-md rounded-2xl p-8 shadow-2xl"
+        style={{ backgroundColor: "#0e3a53" }}
+      >
+        
+        {/* Encabezado */}
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/20">
+            {/* Icono */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h2 className="text-3xl font-bold tracking-tight text-white">Bienvenido</h2>
+          <p className="mt-2 text-sm text-slate-300">Plataforma de Gestión Académica UCN</p>
         </div>
-    );
+
+        <form className="space-y-6" onSubmit={handleSubmit}>
+          {/* Input Usuario */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-300">Correo Electrónico</label>
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+              <input
+                type="email"
+                name="username"
+                required
+                // Inputs con fondo oscuro semi-transparente para que se vean bien sobre el azul
+                className="block w-full rounded-lg border border-white/10 bg-black/20 py-3 pl-10 pr-3 text-white placeholder-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 sm:text-sm transition-colors"
+                placeholder="ejemplo@ucn.cl"
+                value={form.username}
+                onChange={handleChange}
+              />
+            </div>
+          </div>
+
+          {/* Input Contraseña */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-300">Contraseña</label>
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <input
+                type="password"
+                name="password"
+                required
+                className="block w-full rounded-lg border border-white/10 bg-black/20 py-3 pl-10 pr-3 text-white placeholder-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 sm:text-sm transition-colors"
+                placeholder="••••••••"
+                value={form.password}
+                onChange={handleChange}
+              />
+            </div>
+          </div>
+
+          {/* Botón de Acción (Naranja / Amber) */}
+          <button
+            type="submit"
+            disabled={isLoading}
+            className={`w-full flex justify-center rounded-lg bg-amber-500 px-4 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-amber-600 hover:shadow-amber-500/20 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-[#0e3a53] ${
+              isLoading ? "cursor-not-allowed opacity-70" : ""
+            }`}
+          >
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Ingresando...
+              </span>
+            ) : (
+              "Iniciar Sesión"
+            )}
+          </button>
+
+          {/* Mensaje de Error */}
+          {result && (
+            <div className="rounded-md bg-red-500/10 p-3 border border-red-500/20">
+              <p className="text-center text-sm font-medium text-red-300">
+                {result}
+              </p>
+            </div>
+          )}
+        </form>
+      </div>
+    </div>
+  );
 }
-
-

@@ -180,7 +180,7 @@ const CourseCard: React.FC<{
   onDragStart?: (codigo: string) => void;
   onDragEnd?: () => void;
   onChangeEstado?: (estado: EstadoAsignatura) => void;
-}> = ({ course, draggable = true, onDragStart, onDragEnd}) => {
+}> = ({ course, draggable = true, onDragStart, onDragEnd }) => {
   const estadoActual = course.asignado?.estado ?? "proyectado";
   const historialEstado = course.historialEstado ?? null;
   const historialEtiqueta = course.historialEtiqueta ?? null;
@@ -188,15 +188,28 @@ const CourseCard: React.FC<{
   const blocked = !course.elegible && !course.asignado && !historialEstado;
   const isAssigned = Boolean(course.asignado);
   const isApproved = historialEstado === "cursado" && !isAssigned;
+  
   const assignedStyles = "border-blue-400 bg-blue-50 text-blue-900";
+  
   const baseStyles = blocked
-    ? "border-gray-400 bg-gray-200 text-gray-600"
+    ? "border-slate-200 bg-slate-50 text-slate-400" 
     : isAssigned
     ? assignedStyles
     : historialEstado
     ? estadoColorStyles[historialEstado]
     : "border-slate-300 bg-white text-slate-900";
+    
   const canDrag = draggable && (!blocked || isAssigned) && !isApproved;
+
+  const expandedMotivos = React.useMemo(() => {
+    return course.motivos.flatMap((m) => {
+      if (m.startsWith("Faltan prerrequisitos:") || m.startsWith("Error de orden:")) {
+        const content = m.split(":")[1] || "";
+        return content.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+      return [m];
+    });
+  }, [course.motivos]);
 
   return (
     <div
@@ -209,68 +222,62 @@ const CourseCard: React.FC<{
       }}
       onDragEnd={onDragEnd}
       className={classNames(
-        "rounded-lg border shadow-sm transition-shadow",
-        "p-3 space-y-2",
+        "rounded-md border shadow-sm transition-shadow",
+        "p-3 space-y-1", // <--- CAMBIADO A P-3
         baseStyles,
-        canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed opacity-60"
+        canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed",
+        "relative hover:z-50" 
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="font-semibold text-sm tracking-tight">{course.codigo}</p>
-          <p className="text-sm font-medium leading-tight">{course.nombre}</p>
+      <div className="flex items-start justify-between gap-1">
+        <div className="min-w-0">
+          <p className="font-bold text-[11px] tracking-tight truncate">{course.codigo}</p>
+          <p className="text-[14px] font-medium leading-tight line-clamp-2">{course.nombre}</p>
         </div>
-        <span className="text-xs font-semibold uppercase tracking-wide">{formatCredits(course.creditos)}</span>
+        <span className={classNames(
+            "shrink-0 text-[10px] font-bold uppercase tracking-wide px-1 rounded",
+            blocked ? "bg-slate-200 text-slate-500" : "bg-white/40"
+        )}>
+            {course.creditos} Cr
+        </span>
       </div>
-      <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-slate-700">Nivel {course.nivel}</span>
-        
-        {!course.elegible && !course.asignado && (
-          <span className="rounded-full bg-gray-300 px-2 py-0.5 text-gray-700">Bloqueado</span>
-        )}
-      </div>
+      
+      
+
       {(historialEtiqueta || historialPeriodo) && (
-        <p className="text-xs font-medium text-current">
-          Último registro: {historialEtiqueta ?? "—"}
-          {historialPeriodo ? ` · ${historialPeriodo}` : ""}
+        <p className="text-[12px] font-medium opacity-90 truncate">
+          {historialEtiqueta ?? "—"} {historialPeriodo ? `· ${historialPeriodo}` : ""}
         </p>
       )}
 
       {course.asignado && (
-        <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="font-medium">Semestre {course.asignado.semestre ?? "-"}</span>
+        <div className="flex items-center justify-between gap-2 text-[14px]">
+          <span className="font-bold opacity-80">Sem  {course.asignado.semestre ?? "-"}</span>
         </div>
       )}
 
-      {/* --- CÓDIGO NUEVO PARA LAS RESTRICCIONES --- */}
-      {course.motivos.length > 0 && (
-        <div className="group relative mt-2">
-          {/* 1. El aviso pequeño visible siempre */}
-          <div className="inline-flex w-fit cursor-help items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 border border-red-100 transition-colors hover:bg-red-100">
-             <span className="text-[10px] font-bold uppercase tracking-wider text-red-800">
-               ⚠️ Restricciones ({course.motivos.length})
+      {expandedMotivos.length > 0 && (
+        <div className="group relative mt-0.5">
+          <div className="inline-flex w-fit cursor-help items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 border border-red-100 hover:bg-red-100">
+             <span className="text-[9px] font-bold uppercase tracking-wider text-red-800">
+               ⚠️ {expandedMotivos.length}
              </span>
           </div>
-
-          {/* 2. El Tooltip flotante (aparece al pasar el mouse) */}
-          <div className="absolute bottom-full left-0 z-30 mb-2 hidden w-[280px] rounded-lg border border-red-200 bg-white p-3 shadow-xl group-hover:block animate-in fade-in slide-in-from-bottom-2">
-             <p className="mb-2 text-xs font-bold text-red-900">Detalle del bloqueo:</p>
-             {/* Usamos max-h y overflow por si la lista es EXTREMADAMENTE larga */}
-             <ul className="max-h-64 overflow-y-auto space-y-1.5 px-1">
-              {course.motivos.map((motivo, idx) => (
-                <li key={idx} className="flex items-start gap-1.5 text-[11px] leading-snug text-red-700 break-words text-left">
-                  <span className="mt-0.5 text-red-400">•</span>
-                  {/* Limpiamos el emoji si ya viene en el texto */}
-                  <span>{motivo.replace('⚠️ ', '')}</span>
-                </li>
-              ))}
-            </ul>
-            {/* Un pequeño triángulo decorativo apuntando hacia abajo */}
-            <div className="absolute -bottom-[5px] left-4 h-2.5 w-2.5 rotate-45 border-b border-r border-red-200 bg-white"></div>
+          
+          <div className="absolute bottom-full left-0 z-50 hidden w-[200px] pb-2 group-hover:block">
+             <div className="rounded border border-red-200 bg-white p-2 shadow-xl ring-1 ring-black/5">
+                <ul className="max-h-32 overflow-y-auto space-y-1 px-1 custom-scrollbar">
+                  {expandedMotivos.map((motivo, idx) => (
+                    <li key={idx} className="flex items-start gap-1 text-[10px] leading-snug text-red-700 break-words text-left">
+                      <span className="text-red-400 mt-0.5">•</span>
+                      <span className="text-slate-700 font-medium">{motivo}</span>
+                    </li>
+                  ))}
+                </ul>
+             </div>
           </div>
         </div>
       )}
-      {/* ------------------------------------------ */}
     </div>
   );
 };
@@ -298,7 +305,7 @@ const SemesterColumn: React.FC<{
 }) => (
   <div
     className={classNames(
-      "flex h-full flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition",
+      "flex h-full flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-2 shadow-sm transition", 
       isActiveDrop ? "border-blue-500 bg-blue-50" : ""
     )}
     onDragOver={(event) => {
@@ -313,17 +320,17 @@ const SemesterColumn: React.FC<{
       onDragLeave();
     }}
   >
-    <header className="flex items-center justify-between">
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Semestre {semester}</h3>
-      <span className={classNames("text-xs font-semibold", totalCredits > 32 ? "text-red-600" : "text-slate-500")}> 
-        {totalCredits} / 32 créditos
+    <header className="flex items-center justify-between px-1">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">Sem {semester}</h3>
+      <span className={classNames("text-[10px] font-bold", totalCredits > 32 ? "text-red-600" : "text-slate-500")}> 
+        {totalCredits}/32
       </span>
     </header>
-    <div className="flex flex-1 flex-col gap-3">
+    <div className="flex flex-1 flex-col gap-2">
       {courses.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center text-xs text-slate-400">
-          Arrastra ramos aquí
-        </p>
+        <div className="flex h-12 items-center justify-center rounded border border-dashed border-slate-300 bg-white/50">
+            <span className="text-[10px] text-slate-400">Vacío</span>
+        </div>
       ) : (
         [...courses]
           .sort((a, b) => a.codigo.localeCompare(b.codigo))
@@ -346,39 +353,51 @@ const CoursesPool: React.FC<{
   onDragStart: (codigo: string) => void;
   onDragEnd: () => void;
 }> = ({ groupedCourses, activeLevel, onDragStart, onDragEnd }) => (
-  <div className="space-y-4">
-    <div className="flex items-center justify-between">
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Banco de cursos</h3>
+  <div className="flex flex-col gap-2">
+    <div className="flex items-center justify-between px-1">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">Banco de cursos</h3>
       {typeof activeLevel === "number" && (
-        <span className="text-xs font-semibold text-blue-600">Nivel {activeLevel}</span>
+        <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">
+          Nivel {activeLevel}
+        </span>
       )}
     </div>
-    <div className="grid gap-3 rounded-xl border border-slate-200 bg-white/80 p-4 shadow-sm">
-      {Object.keys(groupedCourses).length === 0 && (
-        <p className="text-center text-xs text-slate-400">Todos los cursos están planificados 🎉</p>
-      )}
-      {Object.entries(groupedCourses)
-        .sort(([nivelA], [nivelB]) => Number(nivelA) - Number(nivelB))
-        .map(([nivel, cursos]) => (
-          <div key={nivel} className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase text-slate-500">Nivel {nivel}</span>
-              <span className="text-xs text-slate-400">{cursos.length} ramos</span>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {[...cursos]
-                .sort((a, b) => a.codigo.localeCompare(b.codigo))
-                .map((curso) => (
-                  <CourseCard
-                    key={curso.codigo}
-                    course={curso}
-                    onDragStart={onDragStart}
-                    onDragEnd={onDragEnd}
-                  />
-                ))}
-            </div>
+
+    <div className="max-h-[600px] overflow-y-auto rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+      <div className="grid gap-4">
+        {Object.keys(groupedCourses).length === 0 && (
+          <div className="flex h-32 items-center justify-center text-center">
+             <p className="text-xs text-slate-400">¡Todo planificado! </p>
           </div>
-        ))}
+        )}
+        {Object.entries(groupedCourses)
+          .sort(([nivelA], [nivelB]) => Number(nivelA) - Number(nivelB))
+          .map(([nivel, cursos]) => (
+            <div key={nivel} className="space-y-2">
+              <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 py-1.5 backdrop-blur-sm">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10px] font-bold uppercase text-slate-500">Semestre {nivel}</span>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
+                    {cursos.length}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="grid gap-2 grid-cols-1">
+                {[...cursos]
+                  .sort((a, b) => a.codigo.localeCompare(b.codigo))
+                  .map((curso) => (
+                    <CourseCard
+                      key={curso.codigo}
+                      course={curso} 
+                      onDragStart={onDragStart}
+                      onDragEnd={onDragEnd}
+                    />
+                  ))}
+              </div>
+            </div>
+          ))}
+      </div>
     </div>
   </div>
 );
@@ -449,8 +468,9 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     return () => clearTimeout(timer);
   }, [alerts]);
 
+  const activeProjectionId = selectedProjection?.id ?? null;
+  const activeVersion = projections.find((p) => p.id === activeProjectionId) ?? null;
 
-  // Reemplaza tu función fetchProjections actual con esta:
   const fetchProjections = useCallback(async () => {
     setLoadingProyecciones(true);
     try {
@@ -466,25 +486,19 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       const availableIds = response.proyecciones.map((p) => p.id);
       const currentId = selectedIdRef.current; 
 
-      // --- CAMBIO CLAVE AQUÍ ---
-      // Si ya hay una ID seleccionada y es válida, NO HACEMOS NADA.
       if (currentId && availableIds.includes(currentId)) {
         setLoadingProyecciones(false);
         return; 
       }
       
-      // Solo entramos aquí si NO hay nada seleccionado o la ID antigua fue borrada.
       if (!currentId) {
         if (response.proyecciones.length > 0) {
-           // --- CAMBIO 2: PREFERIR LA MÁS NUEVA ---
-           // Si no hay ideal, tomamos la última del array (la más reciente creada)
            const lista = response.proyecciones;
            const primera = lista.find((p) => p.isIdeal) ?? lista[lista.length - 1];
            
            setSelectedProjection({ id: primera.id, nombreVersion: primera.nombreVersion, isIdeal: primera.isIdeal });
         }
       } else if (!availableIds.includes(currentId)) {
-        // La versión que veíamos fue borrada
         const siguiente = response.proyecciones[0] ?? null;
         setSelectedProjection(
           siguiente ? { id: siguiente.id, nombreVersion: siguiente.nombreVersion, isIdeal: siguiente.isIdeal } : null
@@ -505,41 +519,27 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
       if (!data.rut || !carrera) return;
       
       setLoadingMalla(true);
- 
 
       try {
-        // ... (resto de tu código)
-        const baseResponse = await fetch(
-          `/api/malla/${encodeURIComponent(carrera.codigo)}/${encodeURIComponent(carrera.catalogo)}`
-        );
+        const urlBase = `/api/malla/${encodeURIComponent(carrera.codigo)}/${encodeURIComponent(carrera.catalogo)}`;
+        const urlHistorial = `/api/historial/${encodeURIComponent(data.rut)}/${encodeURIComponent(carrera.codigo)}`;
 
-        if (!baseResponse.ok) {
-          throw new Error("No fue posible obtener la malla base del plan de estudios");
-        }
+        const [baseRes, historialRes] = await Promise.all([
+            fetch(urlBase),
+            fetchJson<HistorialRegistro[]>(urlHistorial).catch(err => {
+                console.error("Error historial (se continuará sin él):", err);
+                return [] as HistorialRegistro[];
+            })
+        ]);
 
-        const baseCourses = (await baseResponse.json()) as CursoMallaBase[];
+        if (!baseRes.ok) throw new Error("No fue posible obtener la malla base");
+        
+        const baseCourses = (await baseRes.json()) as CursoMallaBase[];
         const baseMap = new Map(baseCourses.map((course) => [course.codigo, course] as const));
 
-        let historialRecords: HistorialRegistro[] = [];
-        try {
-          const registros = await fetchJson<HistorialRegistro[]>(
-            `/api/historial/${encodeURIComponent(data.rut)}/${encodeURIComponent(carrera.codigo)}`
-          );
-          if (Array.isArray(registros)) {
-            historialRecords = registros;
-          } else {
-            showAlert("info", "La respuesta del historial académico no es válida. Se omitirán estados previos.");
-          }
-        } catch (error) {
-          console.error("No se pudo obtener el historial académico:", error);
-          showAlert(
-            "info",
-            (error as Error).message ||
-              "No se pudo obtener el historial académico. La malla se mostrará sin estados previos."
-          );
-        }
-
+        const historialRecords = Array.isArray(historialRes) ? historialRes : [];
         const historialMap = new Map<string, HistorialInfo>();
+        
         historialRecords
           .filter((record) => record && typeof record.course === "string")
           .sort((a, b) => (a.period ?? "").localeCompare(b.period ?? ""))
@@ -558,7 +558,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           .filter(([, info]) => info.estado === "cursado")
           .map(([code]) => code);
 
-
         let projectionResponse: MallaResponse | null = null;
         try {
           const params = new URLSearchParams();
@@ -566,18 +565,13 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           if (carrera.codigo) params.set("carrera", carrera.codigo);
           if (carrera.catalogo) params.set("catalogo", carrera.catalogo);
           if (aprobadasLista.length) params.set("aprobadas", aprobadasLista.join(","));
-          // ... dentro de fetchMalla ...
+          
           const url = `/malla/${encodeURIComponent(data.rut)}${params.toString() ? `?${params.toString()}` : ""}`;
           projectionResponse = await fetchJson<MallaResponse>(url);
 
-          // --- CAMBIO 1: SOLO ACTUALIZAR SI SE PIDIÓ UNA ID ---
-          // Si projectionId es undefined (carga inicial), ignoramos lo que sugiera el servidor
-          // para que sea fetchProjections quien decida cual mostrar.
           if (projectionId && projectionResponse.proyeccionSeleccionada) {
              setSelectedProjection(projectionResponse.proyeccionSeleccionada);
           }
-          // -----------------------------------------------------
-          
         } catch (error) {
           console.error(error);
           showAlert("error", (error as Error).message);
@@ -593,7 +587,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
               ? { ...course.asignado, estado: normalizedAssignedState ?? course.asignado.estado ?? "proyectado" }
               : null,
             prereq: Array.isArray(course.prereq) ? course.prereq : [],
-            motivos: Array.isArray(course.motivos) ? course.motivos : course.motivos ? [course.motivos] : [],
+            motivos: Array.isArray(course.motivos) ? course.motivos : [],
             historialEstado: normalizedHistorialState,
             historialEtiqueta: course.historialEtiqueta ?? null,
             historialPeriodo: course.historialPeriodo ?? null,
@@ -610,32 +604,18 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
             return {
               ...projectionInfo,
               asignado: projectionInfo.asignado
-                ? {
-                    ...projectionInfo.asignado,
-                    estado:
-                      normalizeEstadoAsignatura(projectionInfo.asignado.estado) ??
-                      projectionInfo.asignado.estado ??
-                      "proyectado",
-                  }
+                ? { ...projectionInfo.asignado, estado: normalizeEstadoAsignatura(projectionInfo.asignado.estado) ?? "proyectado" }
                 : null,
               nombre: course.asignatura,
               creditos: course.creditos,
               nivel: Number(course.nivel),
               prereq: Array.isArray(projectionInfo.prereq) ? projectionInfo.prereq : [],
-              motivos: Array.isArray(projectionInfo.motivos)
-                ? projectionInfo.motivos
-                : projectionInfo.motivos
-                ? [projectionInfo.motivos]
-                : [],
-              historialEstado:
-                historialInfo?.estado ??
-                normalizeEstadoAsignatura(projectionInfo.historialEstado) ??
-                null,
+              motivos: projectionInfo.motivos || [],
+              historialEstado: historialInfo?.estado ?? normalizeEstadoAsignatura(projectionInfo.historialEstado) ?? null,
               historialEtiqueta: historialInfo?.etiqueta ?? projectionInfo.historialEtiqueta ?? null,
               historialPeriodo: historialInfo?.periodo ?? projectionInfo.historialPeriodo ?? null,
             };
           }
-
           return {
             codigo: course.codigo,
             nombre: course.asignatura,
@@ -653,21 +633,19 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
 
         projectionMap.forEach((course, codigo) => {
           const base = baseMap.get(codigo);
-          if (!base) return;
+          if (!base) return; 
           const historialInfo = historialMap.get(codigo.toUpperCase()) ?? null;
-          const normalizedAssignedState = normalizeEstadoAsignatura(course.asignado?.estado);
-          const normalizedHistorialState = normalizeEstadoAsignatura(course.historialEstado);
           combined.push({
             ...course,
             asignado: course.asignado
-              ? { ...course.asignado, estado: normalizedAssignedState ?? course.asignado.estado ?? "proyectado" }
+              ? { ...course.asignado, estado: normalizeEstadoAsignatura(course.asignado.estado) ?? "proyectado" }
               : null,
             prereq: Array.isArray(course.prereq) ? course.prereq : [],
-            motivos: Array.isArray(course.motivos) ? course.motivos : course.motivos ? [course.motivos] : [],
+            motivos: course.motivos || [],
             nombre: course.nombre ?? base?.asignatura ?? course.codigo,
             creditos: course.creditos ?? base?.creditos ?? 0,
             nivel: Number(course.nivel ?? base?.nivel ?? 0),
-            historialEstado: historialInfo?.estado ?? normalizedHistorialState ?? null,
+            historialEstado: historialInfo?.estado ?? normalizeEstadoAsignatura(course.historialEstado) ?? null,
             historialEtiqueta: historialInfo?.etiqueta ?? course.historialEtiqueta ?? null,
             historialPeriodo: historialInfo?.periodo ?? course.historialPeriodo ?? null,
           });
@@ -724,21 +702,11 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     return { map, totals };
   }, [planningCourses]);
 
-  // En Proyecciones.tsx
-
-  // En Proyecciones.tsx
-
-  // En Proyecciones.tsx
-
   const unassignedByLevel = useMemo(() => {
-    // Helper local para extraer solo números (Ignora letras y guiones)
     const getNum = (str: string) => str.replace(/[^0-9]/g, "");
-
-    // 1. Creamos una "Lista Negra" de números ocupados
     const unavailableNumerics = new Set<string>();
 
     planningCourses.forEach((c) => {
-      // Si el ramo está asignado (proyectado) O ya está aprobado (historial)
       if (c.asignado?.semestre || c.historialEstado === "cursado") {
         unavailableNumerics.add(getNum(c.codigo));
       }
@@ -749,12 +717,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     planningCourses
       .filter((course) => {
         const myNum = getNum(course.codigo);
-        
-        // FILTRO DEFINITIVO:
-        // Si el número de este curso ya está en la lista negra, LO ESCONDEMOS.
-        // Esto hace que SSED00102 esconda a DDOC00102, y DCCB-00141 esconda a DCCB00141.
         const isAlreadyPresent = unavailableNumerics.has(myNum);
-
         return !isAlreadyPresent;
       })
       .forEach((course) => {
@@ -769,8 +732,10 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     const semestres = Array.from(assignedBySemester.map.keys());
     const niveles = planningCourses.map((course) => Number(course.nivel) || 0);
     const maxDetected = Math.max(0, ...semestres, ...(niveles.length ? niveles : [0]));
-    return Math.max(1, maxDetected);
-  }, [assignedBySemester.map, planningCourses]);
+    const minSemesters = activeVersion?.cantidadSemestres || 10;
+    
+    return Math.max(minSemesters, maxDetected);
+  }, [assignedBySemester.map, planningCourses, activeVersion]);
 
   const approvedCourseCodes = useMemo(() => {
     const codes = new Set<string>();
@@ -784,10 +749,6 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     return Array.from(codes);
   }, [courses]);
 
-  // En Proyecciones.tsx
-
-  // En Proyecciones.tsx
-
   const handleAutoProjection = async () => {
     if (!selectedProjection?.id) return;
     const confirm = window.confirm("Esto reordenará todos los ramos futuros automáticamente. ¿Continuar?");
@@ -795,22 +756,18 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
 
     try {
       setSaving(true);
-      // 1. Ejecutar la proyección en el servidor
       await fetchJson(`/proyecciones/${selectedProjection.id}/auto`, {
         method: "POST",
         body: JSON.stringify({ 
           rut: data.rut, 
-          aprobadas: approvedCourseCodes 
+          aprobadas: approvedCourseCodes,
+          catalogo: selectedCareer?.catalogo
         }),
       });
       
       showAlert("success", "✨ Proyección automática generada");
-
-      // 2. TRUCO VISUAL: Limpiar el estado local momentáneamente
-      // Esto obliga a React a "olvidar" los datos viejos antes de traer los nuevos.
       setCourses([]); 
 
-      // 3. Recargar los datos frescos del servidor
       await Promise.all([
           fetchMalla(selectedProjection.id), 
           fetchProjections()
@@ -1028,11 +985,10 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     }
   };
 
-  const activeProjectionId = selectedProjection?.id ?? null;
-  const activeVersion = projections.find((p) => p.id === activeProjectionId) ?? null;
 
   return (
     <div className="space-y-6">
+      {/* 1. INFO DE LA CARRERA */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-semibold text-slate-700">Carrera actual:</span>
         {selectedCareer ? (
@@ -1046,6 +1002,8 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           <span className="text-slate-500">Sin carrera disponible</span>
         )}
       </div>
+
+      {/* 2. ENCABEZADO PRINCIPAL */}
       <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 p-6 shadow">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Planificación académica</h1>
@@ -1055,15 +1013,9 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           {saving && <p className="mt-2 text-xs font-semibold text-blue-600">Guardando cambios...</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          
           <button
-            className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={() => fetchMalla(selectedProjection?.id)}
-            disabled={loadingMalla}
-          >
-            Refrescar datos
-          </button>
-          <button
-            className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-[#0e3a53] px-4 py-2 text-sm font-semibold text-white shadow transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             onClick={handleCreateProjection}
             disabled={saving}
           >
@@ -1071,16 +1023,16 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           </button>
           {activeProjectionId && (
             <button
-              className="rounded-full bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-full bg-[#0e3a53] px-4 py-2 text-sm font-semibold text-white shadow transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               onClick={handleAutoProjection}
               disabled={saving}
             >
-              Proyeccion automatica
+              Proyección automática
             </button>
           )}
           {activeProjectionId && (
             <button
-              className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-full bg-[#0e3a53] px-4 py-2 text-sm font-semibold text-white shadow transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               onClick={() => handleCloneProjection(activeProjectionId)}
               disabled={saving}
             >
@@ -1090,6 +1042,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
         </div>
       </header>
 
+      {/* 3. ALERTAS */}
       <div className="flex flex-wrap gap-3">
         {alerts.map((alert) => (
           <div
@@ -1106,8 +1059,12 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
         ))}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-        <section className="space-y-6">
+      {/* 4. ÁREA PRINCIPAL (Semestres + Barra Lateral) */}
+      <div className="grid gap-6 xl:grid-cols-[3fr_1fr] items-start">
+        
+        {/* COLUMNA IZQUIERDA: SEMESTRES */}
+        <section className="space-y-4 min-w-0"> 
+          
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-slate-800">
@@ -1115,33 +1072,36 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
               </h2>
               {activeVersion && (
                 <p className="text-xs text-slate-500">
-                  Créditos totales: {activeVersion.totalCreditos} · Semestres planificados: {activeVersion.cantidadSemestres}
+                  Créditos: {activeVersion.totalCreditos} · Semestres: {activeVersion.cantidadSemestres}
                 </p>
               )}
             </div>
             {selectedProjection?.isIdeal && (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">⭐ Versión ideal</span>
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">⭐ Ideal</span>
             )}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {/* Semestres con Scroll Horizontal y Diseño Compacto */}
+          <div className="flex w-full overflow-x-auto gap-2 pb-4 items-start scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
             {Array.from({ length: maxSemester }, (_, index) => index + 1).map((semester) => (
-              <SemesterColumn
-                key={semester}
-                semester={semester}
-                courses={assignedBySemester.map.get(semester) ?? []}
-                totalCredits={assignedBySemester.totals.get(semester) ?? 0}
-                isActiveDrop={activeSemesterDrop === semester}
-                onDropCourse={handleDropToSemester}
-                onDragOver={() => setActiveSemesterDrop(semester)}
-                onDragLeave={() => setActiveSemesterDrop((current) => (current === semester ? null : current))}
-                onDragStart={(codigo) => setDraggingCourse(codigo)}
-                onDragEnd={() => {
-                  setDraggingCourse(null);
-                  setActiveSemesterDrop(null);
-                  setRemovalActive(false);
-                }}
-              />
+              
+              <div key={semester} className="min-w-[250px] flex-shrink-0">
+                <SemesterColumn
+                  semester={semester}
+                  courses={assignedBySemester.map.get(semester) ?? []}
+                  totalCredits={assignedBySemester.totals.get(semester) ?? 0}
+                  isActiveDrop={activeSemesterDrop === semester}
+                  onDropCourse={handleDropToSemester}
+                  onDragOver={() => setActiveSemesterDrop(semester)}
+                  onDragLeave={() => setActiveSemesterDrop((current) => (current === semester ? null : current))}
+                  onDragStart={(codigo) => setDraggingCourse(codigo)}
+                  onDragEnd={() => {
+                    setDraggingCourse(null);
+                    setActiveSemesterDrop(null);
+                    setRemovalActive(false);
+                  }}
+                />
+              </div>
             ))}
           </div>
 
@@ -1155,7 +1115,10 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
           />
         </section>
 
-        <aside className="space-y-6">
+        {/* COLUMNA DERECHA: BANCO Y VERSIONES */}
+        <aside className="space-y-6 min-w-0">
+          
+          {/* A. Banco de Cursos */}
           <CoursesPool
             groupedCourses={unassignedByLevel}
             activeLevel={
@@ -1169,92 +1132,112 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
             }}
           />
 
-          <section className="space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-5 shadow">
-            <header className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Versiones disponibles</h3>
-              <span className="text-xs text-slate-400">{projections.length} versiones</span>
-            </header>
-            {loadingProyecciones && <p className="text-xs text-slate-500">Cargando versiones...</p>}
-            {!loadingProyecciones && projections.length === 0 && (
-              <div className="space-y-3 text-sm text-slate-500">
-                <p>No hay versiones guardadas todavía.</p>
+          {/* B. Lista de Versiones (BOTONES SIEMPRE VISIBLES) */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">Versiones disponibles</h3>
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                {projections.length}
+              </span>
+            </div>
+
+            <div className="max-h-[300px] overflow-y-auto rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+              
+              {loadingProyecciones && <p className="p-2 text-center text-xs text-slate-400">Cargando...</p>}
+
+              {!loadingProyecciones && projections.length === 0 && (
+                <div className="flex flex-col items-center justify-center gap-2 py-4 text-center">
+                  <p className="text-xs text-slate-400">Sin versiones.</p>
+                  <button
+                    onClick={handleCreateProjection}
+                    className="rounded border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                    disabled={saving}
+                  >
+                    Crear nueva
+                  </button>
+                </div>
+              )}
+
+              <ul className="space-y-2">
+                {projections.map((projection) => {
+                  const isSelected = projection.id === activeProjectionId;
+                  return (
+                    <li
+                      key={projection.id}
+                      className={classNames(
+                        "group relative rounded-md border p-2 transition-all cursor-pointer",
+                        isSelected 
+                          ? "border-blue-400 bg-blue-50/50 ring-1 ring-blue-400" 
+                          : "border-slate-200 bg-white hover:border-slate-300",
+                        "shadow-sm"
+                      )}
+                      onClick={() => handleSelectProjection(projection.id)}
+                    >
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-xs font-bold text-slate-700 truncate w-full" title={projection.nombreVersion}>
+                            {projection.nombreVersion}
+                          </span>
+                          {projection.isIdeal && (
+                            <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">
+                              Ideal
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-medium text-slate-400">
+                            {projection.totalCreditos} Cr · {projection.cantidadSemestres} Sem
+                          </span>
+                        </div>
+
+                        {/* Botonera de Texto (SIEMPRE VISIBLE) */}
+                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 mt-1">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleRenameProjection(projection.id); }}
+                                className="rounded px-1.5 py-0.5 text-[9px] font-bold text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors"
+                            >
+                                Renombrar
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleMarkIdeal(projection.id); }}
+                                className={classNames(
+                                    "rounded px-1.5 py-0.5 text-[9px] font-bold transition-colors",
+                                    projection.isIdeal 
+                                      ? "text-amber-600 bg-amber-50" 
+                                      : "text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                                )}
+                            >
+                                ★ Ideal
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteProjection(projection.id); }}
+                                className="rounded px-1.5 py-0.5 text-[9px] font-bold text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            >
+                                Eliminar
+                            </button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {projections.length > 0 && (
                 <button
                   onClick={handleCreateProjection}
-                  className="w-full rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-3 w-full rounded border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-[10px] font-bold uppercase text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
                   disabled={saving}
                 >
-                  Crear planificación
+                  + Nueva versión
                 </button>
-              </div>
-            )}
-            <ul className="space-y-3">
-              {projections.map((projection) => {
-                const isSelected = projection.id === activeProjectionId;
-                return (
-                  <li
-                    key={projection.id}
-                    className={classNames(
-                      "rounded-xl border p-4 transition",
-                      isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white",
-                      "shadow-sm"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <button
-                          onClick={() => handleSelectProjection(projection.id)}
-                          className="text-left text-sm font-semibold text-slate-800 hover:underline"
-                        >
-                          {projection.nombreVersion}
-                        </button>
-                        <p className="text-xs text-slate-500">
-                          Créditos: {projection.totalCreditos} · Semestres: {projection.cantidadSemestres}
-                        </p>
-                        {projection.isIdeal && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
-                            ⭐ Ideal
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-col items-end gap-2 text-xs">
-                        <button
-                          onClick={() => handleRenameProjection(projection.id)}
-                          className="rounded-full border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
-                        >
-                          Renombrar
-                        </button>
-                        <button
-                          onClick={() => handleMarkIdeal(projection.id)}
-                          className="rounded-full border border-amber-300 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
-                        >
-                          Marcar ideal
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProjection(projection.id)}
-                          className="rounded-full border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-100"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            {projections.length > 0 && (
-              <button
-                onClick={handleCreateProjection}
-                className="w-full rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={saving}
-              >
-                Crear nueva planificación
-              </button>
-            )}
-        
-          </section>
+              )}
+            </div>
+          </div>
         </aside>
       </div>
 
+      {/* 5. MALLA CURRICULAR COMPLETA */}
       <section className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow">
         <h2 className="text-lg font-semibold text-slate-800">Malla curricular completa</h2>
         <p className="text-sm text-slate-500">Visualiza todos los ramos ordenados por nivel y su estado actual.</p>
@@ -1270,7 +1253,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
             .map(([nivel, list]) => (
               <div key={nivel} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-700">Nivel {nivel}</h3>
+                  <h3 className="text-sm font-semibold text-slate-700">Semestre {nivel}</h3>
                   <span className="text-xs text-slate-400">{list.length} ramos</span>
                 </div>
                 <div className="space-y-2">
