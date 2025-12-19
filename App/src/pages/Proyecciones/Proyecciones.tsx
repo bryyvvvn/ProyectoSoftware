@@ -197,7 +197,7 @@ const CourseCard: React.FC<{
     ? assignedStyles
     : historialEstado
     ? estadoColorStyles[historialEstado]
-    : "border-slate-300 bg-white text-slate-900";
+    : "border-slate-300 bg-white text-slate-800";
     
   const canDrag = draggable && (!blocked || isAssigned) && !isApproved;
 
@@ -990,7 +990,7 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
     <div className="space-y-6">
       {/* 1. INFO DE LA CARRERA */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-semibold text-slate-700">Carrera actual:</span>
+        <span className="font-semibold text-slate-800">Carrera actual:</span>
         {selectedCareer ? (
           <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-semibold text-blue-800">
             {selectedCareer.nombre}
@@ -1174,10 +1174,16 @@ const ProyeccionesPage: React.FC<{ data: UserData }> = ({ data }) => {
                       onClick={() => handleSelectProjection(projection.id)}
                     >
                       <div className="flex flex-col gap-1.5">
+                        {/* Busca este bloque dentro de la lista de versiones (aside derecha) */}
                         <div className="flex items-start justify-between gap-2">
-                          <span className="text-xs font-bold text-slate-700 truncate w-full" title={projection.nombreVersion}>
+                          <span 
+                            // CAMBIO AQUÍ: Asegúrate de que diga text-[14px] para igualar a las tarjetas
+                            className="text-[14px] font-medium text-slate-800 truncate w-full" 
+                            title={projection.nombreVersion}
+                          >
                             {projection.nombreVersion}
                           </span>
+                          
                           {projection.isIdeal && (
                             <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">
                               Ideal
